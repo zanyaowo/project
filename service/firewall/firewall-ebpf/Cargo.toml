@@ -1,0 +1,11 @@
+[package]
+name = "firewall-ebpf"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aya-ebpf = "0.1.1"
+aya-log-ebpf = "0.1.1"
+bpf-linker = "0.9.15"
+
+interface = { path = "../interface" }

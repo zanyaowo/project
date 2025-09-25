@@ -1,0 +1,21 @@
+[package]
+name = "ebpf-firewall"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aya = "0.13.1"
+
+[workspace]
+members = [
+    "xtask",
+    "firewall-ebpf",
+    "firewall-user",
+    "interface",
+]
+
+resolver = "2"
+
+[[bin]]
+name="entry"
+path="firewall-user/src/main.rs"
