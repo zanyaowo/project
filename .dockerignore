@@ -1,0 +1,79 @@
+# .dockerignore for a multi-language Monorepo project
+
+# =========================================================================
+# I. Version Control
+# =========================================================================
+# Never include the .git directory in the build context.
+# It can be huge and contains sensitive history.
+.git
+.gitignore
+.gitattributes
+
+# =========================================================================
+# II. IDE & Editor Specific
+# =========================================================================
+# Ignore JetBrains IDE (RustRover, PyCharm, WebStorm) project files.
+.idea/
+
+# Ignore VS Code settings.
+.vscode/
+
+# =========================================================================
+# III. Language & Framework Specific Artifacts
+# =========================================================================
+
+# --- Rust / Cargo ---
+# Ignore all target directories, including the workspace root and nested ones.
+# This is the single most important rule for Rust projects.
+**/target/
+# Ignore Cargo's local registry cache if it somehow ends up in the project dir.
+.cargo/
+
+# --- Python ---
+# Ignore Python bytecode files and caches.
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+# Ignore virtual environment directories.
+.venv/
+venv/
+env/
+# Ignore testing and coverage artifacts.
+.pytest_cache/
+.coverage
+
+# --- Node.js / npm / Astro ---
+# Ignore the massive node_modules directory.
+**/node_modules/
+# Ignore build outputs.
+.astro/
+dist/
+build/
+# Ignore log files.
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# =========================================================================
+# IV. General & Project Specific
+# =========================================================================
+
+# Ignore Docker related files from the context itself.
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Ignore local environment variable files.
+.env
+.env.*
+!.env.example
+
+# Ignore documentation (unless you need it inside the image).
+# docs/
+
+# Ignore markdown files like READMEs and contribution guides.
+*.md
+
+# Ignore configuration for other tools
+.editorconfig

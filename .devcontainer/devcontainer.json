@@ -1,0 +1,73 @@
+{
+  "name": "eBPF Firewall Development",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": "..",
+    "args": {
+      "BASE_IMAGE": "ubuntu:24.04",
+      "RUST_VERSION": "stable",
+      "PYTHON_VERSION": "3.12",
+      "NODE_VERSION": "20",
+      "LLVM_VERSION": "18"
+    }
+  },
+  "runArgs": [
+    "--init",
+    "--privileged",
+    "--cap-add=SYS_ADMIN",
+    "--cap-add=NET_ADMIN",
+    "--cap-add=SYS_PTRACE",
+    "--security-opt=seccomp=unconfined",
+    "--volume=/sys/fs/bpf:/sys/fs/bpf:rshared",
+    "--volume=/sys/kernel/debug:/sys/kernel/debug:rshared",
+    "--mount=type=bind,source=/proc,target=/host/proc,readonly"
+  ],
+  "mounts": [
+    "source=ebpf-firewall-cargo-cache,target=/usr/local/cargo/registry,type=volume",
+    "source=ebpf-firewall-target-cache,target=/workspace/target,type=volume",
+    "source=ebpf-firewall-node-modules,target=/workspace/web/node_modules,type=volume"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "vadimcn.vscode-lldb",
+        "ms-python.python",
+        "ms-python.black-formatter",
+        "ms-python.flake8",
+        "ms-vscode.cpptools-extension-pack",
+        "ms-vscode.cmake-tools",
+        "bradlc.vscode-tailwindcss",
+        "ms-vscode.vscode-typescript-next",
+        "esbenp.prettier-vscode",
+        "ms-vscode.hexeditor",
+        "tamasfe.even-better-toml",
+        "serayuzgur.crates"
+      ],
+      "settings": {
+        "rust-analyzer.server.path": "/usr/local/cargo/bin/rust-analyzer",
+        "rust-analyzer.check.command": "clippy",
+        "rust-analyzer.cargo.features": "all",
+        "rust-analyzer.procMacro.enable": true,
+        "python.defaultInterpreterPath": "/usr/bin/python3",
+        "python.formatting.provider": "black",
+        "python.linting.enabled": true,
+        "python.linting.flake8Enabled": true,
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+          "source.organizeImports": true
+        },
+        "files.watcherExclude": {
+          "**/target/**": true,
+          "**/.git/objects/**": true,
+          "**/.git/subtree-cache/**": true,
+          "**/node_modules/**": true
+        }
+    }
+  },
+  "postCreateCommand": "echo vscode ALL=\\(root\\) NOPASSWD:ALL > /etc/sudoers.d/vscode && chmod 0440 /etc/sudoers.d/vscode && sudo chown -R vscode /usr/local/cargo/registry",
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true,
+  "workspaceFolder": "/workspace"
+  }
+}
