@@ -1,0 +1,17 @@
+# .devcontainer/gitconfig
+# This is a template gitconfig for the Dev Container.
+# It will be copied to /home/vscode/.gitconfig upon container creation.
+
+[user]
+    # 【請務必修改為您自己的資訊！】
+    # 這是您在 GitHub 上公開顯示的名字
+    name = Zanya
+    # 這是您在 GitHub 上，用於 commit 的 email 地址
+    email = tea915656@gmail.com
+
+[safe]
+    # 這是一個重要的安全設定，用於告訴 Git，
+    # 即使 /workspaces/current 這個目錄的所有者，與當前用戶不同，
+    # 也依然信任它是一個安全的 Git 倉庫。
+    # 這在 Dev Container 的場景下，是必需的。
+    directory = /workspaces/current
