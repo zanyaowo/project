@@ -49,7 +49,7 @@
         "rust-analyzer.check.command": "clippy",
         "rust-analyzer.cargo.features": "all",
         "rust-analyzer.procMacro.enable": true,
-        "python.defaultInterpreterPath": "/usr/bin/python3",
+        "python.defaultInterpreterPath": "/opt/venv/bin/python",
         "python.formatting.provider": "black",
         "python.linting.enabled": true,
         "python.linting.flake8Enabled": true,
