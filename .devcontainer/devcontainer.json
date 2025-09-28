@@ -67,8 +67,11 @@
           "**/.git/objects/**": true,
           "**/.git/subtree-cache/**": true,
           "**/node_modules/**": true
-        }
-      }
+        },
+        "rust-analyzer.linkedProjects": [
+          "service/firewall/Cargo.toml"
+        ]
     }
   }
+}
 }
