@@ -8,4 +8,5 @@ aya-ebpf = "0.1.1"
 aya-log-ebpf = "0.1.1"
 bpf-linker = "0.9.15"
 
-interface = { path = "../interface" }
+
+firewall-common = { path = "../firewall-common" }
