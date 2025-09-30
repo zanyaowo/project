@@ -18,8 +18,8 @@
     "--cap-add=NET_ADMIN",
     "--cap-add=SYS_PTRACE",
     "--security-opt=seccomp=unconfined",
-    "--volume=/sys/fs/bpf:/sys/fs/bpf:rshared",
-    "--volume=/sys/kernel/debug:/sys/kernel/debug:rshared",
+    "--volume=/sys/fs/bpf:/sys/fs/bpf",
+    "--volume=/sys/kernel/debug:/sys/kernel/debug",
     "--mount=type=bind,source=/proc,target=/host/proc,readonly"
   ],
   "mounts": [
@@ -27,6 +27,10 @@
     "source=ebpf-firewall-target-cache,target=/workspace/target,type=volume",
     "source=ebpf-firewall-node-modules,target=/workspace/web/node_modules,type=volume"
   ],
+  "remoteUser": "vscode",
+  "initializeCommand": "docker run --rm --privileged --pid=host alpine nsenter -t 1 -m -u -n -i sh -c 'mount --make-shared /sys/fs/bpf 2>/dev/null || true; mount --make-shared /sys/kernel/debug 2>/dev/null || true'",
+  "postCreateCommand": "chown -R vscode:vscode /usr/local/cargo/registry",
+  "workspaceFolder": "/workspace",
   "customizations": {
     "vscode": {
       "extensions": [
@@ -63,11 +67,7 @@
           "**/.git/subtree-cache/**": true,
           "**/node_modules/**": true
         }
+      }
     }
-  },
-  "postCreateCommand": "echo vscode ALL=\\(root\\) NOPASSWD:ALL > /etc/sudoers.d/vscode && chmod 0440 /etc/sudoers.d/vscode && sudo chown -R vscode /usr/local/cargo/registry",
-  "remoteUser": "vscode",
-  "updateRemoteUserUID": true,
-  "workspaceFolder": "/workspace"
   }
 }

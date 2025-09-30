@@ -48,6 +48,10 @@ ARG USER_GID=$USER_UID
 RUN groupadd --gid $USER_GID $USERNAME 2>/dev/null || true \
     && useradd --uid $USER_UID --gid $USER_GID --create-home --shell /bin/bash $USERNAME 2>/dev/null || true
 
+# 允許用戶使用 sudo
+RUN echo 'vscode ALL=(root) NOPASSWD:ALL' > /etc/sudoers.d/vscode \
+    && chmod 0440 /etc/sudoers.d/vscode
+
 # 設定環境變數
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
@@ -163,3 +167,6 @@ ENV RUST_BACKTRACE=full \
     PYTHONPATH="/workspace/service/model"
 
 CMD ["/bin/bash"]
+
+# only for dev container
+USER root
