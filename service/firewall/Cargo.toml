@@ -7,15 +7,11 @@ edition = "2024"
 aya = "0.13.1"
 
 [workspace]
-members = [
-    "xtask",
-    "firewall-ebpf",
-    "firewall-user",
-    "interface",
-]
+members = ["xtask", "firewall-ebpf", "firewall", "firewall-common"]
 
 resolver = "2"
 
+
 [[bin]]
-name="entry"
-path="firewall-user/src/main.rs"
+name = "entry"
+path = "firewall/src/main.rs"
