@@ -14,4 +14,4 @@
     # 即使 /workspaces/current 這個目錄的所有者，與當前用戶不同，
     # 也依然信任它是一個安全的 Git 倉庫。
     # 這在 Dev Container 的場景下，是必需的。
-    directory = /workspaces/current
+    directory = /workspaces
