@@ -131,31 +131,9 @@ ENV PATH="/opt/venv/bin:$PATH"
 USER $USERNAME
 WORKDIR /workspace
 
-# 複製依賴檔案（分層優化）
-COPY --chown=${USERNAME}:${USERNAME} service/firewall/Cargo.toml ./service/firewall/
-COPY --chown=${USERNAME}:${USERNAME} service/firewall/firewall-ebpf/Cargo.toml ./service/firewall/firewall-ebpf/
-COPY --chown=${USERNAME}:${USERNAME} service/firewall/firewall/Cargo.toml ./service/firewall/firewall/
-COPY --chown=${USERNAME}:${USERNAME} service/firewall/firewall-common/Cargo.toml ./service/firewall/firewall-common/
-COPY --chown=${USERNAME}:${USERNAME} service/firewall/xtask/Cargo.toml ./service/firewall/xtask/
-
-# 複製最小源碼檔案
-COPY --chown=${USERNAME}:${USERNAME} service/firewall/firewall-ebpf/src/main.rs ./service/firewall/firewall-ebpf/src/main.rs
-COPY --chown=${USERNAME}:${USERNAME} service/firewall/firewall/src/main.rs ./service/firewall/firewall/src/main.rs
-COPY --chown=${USERNAME}:${USERNAME} service/firewall/firewall-common/src/lib.rs ./service/firewall/firewall-common/src/lib.rs
-COPY --chown=${USERNAME}:${USERNAME} service/firewall/xtask/src/main.rs ./service/firewall/xtask/src/main.rs
-
-# Python requirements
-COPY --chown=${USERNAME}:${USERNAME} service/model/requirements.txt ./service/model/
-
-# 安裝依賴（合併以減少層數）
-WORKDIR /workspace/service/firewall
-RUN cargo fetch \
-    && cd /workspace/service/model \
-    && pip install --no-cache-dir -r requirements.txt
-
-# 複製完整源碼
-WORKDIR /workspace
-COPY --chown=${USERNAME}:${USERNAME} . .
+# 複製使用者設定
+COPY --chown=${USERNAME}:${USERNAME} .devcontainer/gitconfig /home/${USERNAME}/.gitconfig
+COPY --chown=${USERNAME}:${USERNAME} .devcontainer/bashrc /home/${USERNAME}/.bashrc
 
 # 設定用戶環境
 RUN mkdir -p /home/$USERNAME/.config /home/$USERNAME/.cache /home/$USERNAME/workspace

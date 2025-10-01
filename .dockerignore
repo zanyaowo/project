@@ -5,15 +5,15 @@
 # =========================================================================
 # Never include the .git directory in the build context.
 # It can be huge and contains sensitive history.
-.git
-.gitignore
-.gitattributes
+# .git
+# .gitignore
+# .gitattributes
 
 # =========================================================================
 # II. IDE & Editor Specific
 # =========================================================================
 # Ignore JetBrains IDE (RustRover, PyCharm, WebStorm) project files.
-.idea/
+# .idea/
 
 # Ignore VS Code settings.
 .vscode/
@@ -27,7 +27,7 @@
 # This is the single most important rule for Rust projects.
 **/target/
 # Ignore Cargo's local registry cache if it somehow ends up in the project dir.
-.cargo/
+# .cargo/
 
 # --- Python ---
 # Ignore Python bytecode files and caches.
@@ -60,8 +60,8 @@ pnpm-debug.log*
 # =========================================================================
 
 # Ignore Docker related files from the context itself.
-Dockerfile
-.dockerignore
+# Dockerfile
+# .dockerignore
 docker-compose.yml
 
 # Ignore local environment variable files.

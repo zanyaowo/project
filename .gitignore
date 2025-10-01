@@ -1,8 +1,35 @@
-service/firewall/target
-service/firewall/.idea
-
-# Folder view configuration files
+# IDE & Editor Specific
+.idea/
+.vscode/
 .DS_Store
 Desktop.ini
 
-.idea
+# Language & Framework Specific Artifacts
+
+## Rust / Cargo
+**/target/
+
+## Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+.pytest_cache/
+.coverage
+
+## Node.js / npm / Astro
+**/node_modules/
+.astro/
+dist/
+build/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# General & Project Specific
+.env
+.env.*
+!.env.example

@@ -24,12 +24,13 @@
   ],
   "mounts": [
     "source=ebpf-firewall-cargo-cache,target=/usr/local/cargo/registry,type=volume",
-    "source=ebpf-firewall-target-cache,target=/workspace/target,type=volume",
+    "source=ebpf-firewall-target-cache,target=/workspace/service/firewall/target,type=volume",
     "source=ebpf-firewall-node-modules,target=/workspace/web/node_modules,type=volume"
   ],
   "remoteUser": "vscode",
   "initializeCommand": "docker run --rm --privileged --pid=host alpine nsenter -t 1 -m -u -n -i sh -c 'mount --make-shared /sys/fs/bpf 2>/dev/null || true; mount --make-shared /sys/kernel/debug 2>/dev/null || true'",
-  "postCreateCommand": "chown -R vscode:vscode /usr/local/cargo/registry",
+  "postCreateCommand": "chown -R vscode:vscode /usr/local/cargo/registry && (cd /workspace/service/firewall && cargo fetch) && (cd /workspace/service/model && pip install --no-cache-dir -r requirements.txt)",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
   "workspaceFolder": "/workspace",
   "customizations": {
     "vscode": {
