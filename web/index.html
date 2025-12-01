@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>DDoS 異常偵測結果</title>
+    <style>
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+    </style>
+</head>
+<body>
+    <h1>隔離森林 (Isolation Forest) 異常偵測警報列表</h1>
+    <div id="alert-summary">載入中...</div>
+    <table id="alert-table">
+        <thead>
+            <tr>
+                <th>時間戳 (ts)</th>
+                <th>來源 IP (src)</th>
+                <th>目的 IP (dst)</th>
+                <th>異常分數 (Score)</th>
+                <th>總流量 (bytes_sum)</th>
+            </tr>
+        </thead>
+        <tbody id="table-body">
+            </tbody>
+    </table>
+    <script src="app.js"></script>
+</body>
+</html>
