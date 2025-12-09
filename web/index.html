@@ -2,29 +2,61 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>DDoS 異常偵測結果</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DDoS 偵測系統儀表板</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
     <style>
-        table { width: 100%; border-collapse: collapse; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f2f2f2; }
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f9; }
+        .dashboard { max-width: 1200px; margin: auto; }
+        .metric-cards { display: flex; justify-content: space-between; margin-bottom: 20px; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); flex: 1; margin: 0 10px; text-align: center; }
+        .chart-container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .value { font-size: 2em; font-weight: bold; color: #007bff; }
+        .status-light { display: inline-block; width: 15px; height: 15px; border-radius: 50%; margin-right: 10px; background-color: #28a745; }
     </style>
 </head>
 <body>
-    <h1>隔離森林 (Isolation Forest) 異常偵測警報列表</h1>
-    <div id="alert-summary">載入中...</div>
-    <table id="alert-table">
-        <thead>
-            <tr>
-                <th>時間戳 (ts)</th>
-                <th>來源 IP (src)</th>
-                <th>目的 IP (dst)</th>
-                <th>異常分數 (Score)</th>
-                <th>總流量 (bytes_sum)</th>
-            </tr>
-        </thead>
-        <tbody id="table-body">
-            </tbody>
-    </table>
-    <script src="app.js"></script>
+    <div class="dashboard">
+        <h1>DDoS 輕量化偵測系統儀表板 (Random Forest)</h1>
+
+        <h2>
+            <span class="status-light"></span> 系統狀態：即時監測中
+        </h2>
+        <div class="metric-cards">
+            <div class="card">
+                <h3>即時處理速度 (PPS)</h3>
+                <p class="value" id="pps-display">載入中...</p>
+            </div>
+            <div class="card">
+                <h3>平均推論延遲</h3>
+                <p class="value" id="latency-display">49.3 ns</p> </div>
+            <div class="card">
+                <h3>訓練時間 (20% 數據)</h3>
+                <p class="value" id="training-time-display">載入中...</p>
+            </div>
+        </div>
+        
+        <h2>模型最終效能 (加權平均, 離線驗證)</h2>
+        <div class="metric-cards">
+            <div class="card">
+                <h3>準確率 (Accuracy)</h3>
+                <p class="value" id="accuracy-display">載入中...</p>
+            </div>
+            <div class="card">
+                <h3>召回率 (Recall)</h3>
+                <p class="value" id="recall-display">載入中...</p>
+            </div>
+            <div class="card">
+                <h3>F1-Score</h3>
+                <p class="value" id="f1-display">載入中...</p>
+            </div>
+        </div>
+
+        <h2>即時攻擊流量趨勢</h2>
+        <div class="chart-container">
+            <canvas id="realTimeChart"></canvas>
+        </div>
+    </div>
+    <script src="script.js"></script>
 </body>
 </html>
