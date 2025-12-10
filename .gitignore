@@ -33,3 +33,11 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
+
+# --- 數據及模型輸出檔案 (通常不需要提交) ---
+SAT-01-12-2018_0750
+*.csv
+*.tsv
+*.joblib
+*.log
+*.pcap
