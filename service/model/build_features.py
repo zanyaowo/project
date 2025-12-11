@@ -1,3 +1,4 @@
+#將TSV格式的conn日誌轉換為帶有基本特徵的CSV文件
 import argparse
 import pandas as pd
 from utils import build_basic_features
