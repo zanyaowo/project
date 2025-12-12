@@ -17,7 +17,7 @@
 </head>
 <body>
     <div class="dashboard">
-        <h1>DDoS 輕量化偵測系統儀表板 (Random Forest)</h1>
+        <h1>DDoS 輕量化偵測系統儀表板 (Isolation Forest)</h1>
 
         <h2>
             <span class="status-light"></span> 系統狀態：即時監測中
@@ -55,6 +55,23 @@
         <h2>即時攻擊流量趨勢</h2>
         <div class="chart-container">
             <canvas id="realTimeChart"></canvas>
+        </div>
+        <h2>異常連線詳細清單</h2>
+        <div id="alert-summary" style="margin-bottom: 10px; font-weight: bold;">載入中...</div>
+        <div style="overflow-x: auto;">
+            <table border="1" cellpadding="10" cellspacing="0" style="width: 100%; border-collapse: collapse; background: white;">
+                <thead>
+                    <tr style="background-color: #007bff; color: white;">
+                        <th>時間戳 (ts)</th>
+                        <th>來源 IP (src)</th>
+                        <th>目的 IP (dst)</th>
+                        <th>異常分數 (Score)</th>
+                        <th>流量大小 (Bytes)</th>
+                    </tr>
+                </thead>
+            <tbody id="table-body">
+                </tbody>
+            </table>
         </div>
     </div>
     <script src="script.js"></script>

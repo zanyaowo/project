@@ -56,6 +56,47 @@ app.get('/api/real-time-stream', (req, res) => {
     });
 });
 
+// ----------------------------------------------------
+// API 路由 3: 獲取詳細報警清單 (CSV 轉 JSON)
+// ----------------------------------------------------
+app.get('/api/alerts', (req, res) => {
+    // 檔案路徑：指向 web/static/alerts_if.csv
+    const filePath = path.join(__dirname, 'static', 'alerts_if.csv');
+
+    fs.readFile(filePath, 'utf8', (err, data) => {
+        if (err) {
+            console.error('Error reading alerts CSV:', err);
+            // 如果檔案不存在，回傳空陣列，避免前端報錯
+            return res.json([]); 
+        }
+
+        try {
+            // --- 簡易 CSV 轉 JSON 邏輯 ---
+            const lines = data.trim().split('\n'); // 依換行切割
+            if (lines.length < 2) return res.json([]); // 只有標題或為空
+
+            const headers = lines[0].split(','); // 取得標題列 (ts, src, dst...)
+
+            const alerts = lines.slice(1).map(line => {
+                const values = line.split(',');
+                const obj = {};
+                // 將每一欄位對應到標題
+                headers.forEach((header, index) => {
+                    // 去除可能的引號或空白
+                    obj[header.trim()] = values[index] ? values[index].trim() : '';
+                });
+                return obj;
+            });
+            // ---------------------------
+
+            res.json(alerts); // 回傳轉換後的 JSON 陣列
+
+        } catch (parseError) {
+            console.error('Error parsing CSV:', parseError);
+            res.status(500).json({ error: '解析報警數據失敗' });
+        }
+    });
+});
 
 // 啟動伺服器
 app.listen(PORT, () => {

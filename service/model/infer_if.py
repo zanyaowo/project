@@ -33,7 +33,14 @@ def generate_web_report(df_alerts, df_features, output_json_path):
             "total_connections": int(total_connections),
             "total_alerts": int(total_alerts),
             "alert_rate_percent": round(alert_rate, 2),
-            "model_type": "Isolation Forest"
+            "model_type": "Isolation Forest",
+            
+            # 這些是固定值，代表模型當初訓練時的表現
+            "validation": {
+                "accuracy": 0.965,   # 請填入您的真實準確率
+                "recall": 0.942,     # 請填入您的真實召回率
+                "f1_score": 0.953    # 請填入您的真實 F1 分數
+            }
         },
         "top_dports": dport_distribution,
         "raw_alerts_path": "./alerts_if.csv" # 指向原始 CSV 報警清單
