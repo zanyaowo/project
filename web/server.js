@@ -7,13 +7,13 @@ const app = express();
 const PORT = 3000;
 
 // 設置靜態檔案路徑：將 'public' 資料夾設定為網頁的根目錄
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'static')));
 
 // ----------------------------------------------------
 // API 路由 1: 獲取靜態分析報告 (模型最終效能指標)
 // ----------------------------------------------------
 app.get('/api/static-report', (req, res) => {
-    const filePath = path.join(__dirname, 'static_report.json');
+    const filePath = path.join(__dirname, 'static', 'report.json');
     
     fs.readFile(filePath, (err, data) => {
         if (err) {
