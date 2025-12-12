@@ -53,7 +53,7 @@ def main():
     ap.add_argument("--model", type=str, required=True, help="if_model.joblib")
     ap.add_argument("--output", type=str, default="alerts_if.csv")
     ap.add_argument("--override_threshold", type=float, default=None, help="覆寫模型內建阈值（可選）")
-    ap.add_argument("--json_output", type=str, default="web/static/web_report.json", help="Web 報告 JSON 輸出路徑")
+    ap.add_argument("--json_output", type=str, default="../../web/static/web_report.json", help="Web 報告 JSON 輸出路徑")
     args = ap.parse_args()
 
     bundle = load(args.model)
