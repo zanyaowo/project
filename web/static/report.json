@@ -1,0 +1,18 @@
+{
+    "status": "success",
+    "last_updated": "2025-12-11 23:15:31",
+    "metrics": {
+        "total_connections": 111521,
+        "total_alerts": 5410,
+        "alert_rate_percent": 4.85,
+        "model_type": "Isolation Forest"
+    },
+    "top_dports": {
+        "58085": 4,
+        "53440": 3,
+        "63125": 3,
+        "19316": 3,
+        "12052": 3
+    },
+    "raw_alerts_path": "./alerts_if.csv"
+}
