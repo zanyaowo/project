@@ -1,7 +1,3 @@
-<<<<<<< Updated upstream
-fn main() {
-    println!("Hello, world! for test");
-=======
 use aya::{include_bytes_aligned, Ebpf};
 use aya::maps::RingBuf;
 use aya::programs::{Xdp, XdpFlags};
@@ -52,5 +48,4 @@ async fn main() -> Result<(), anyhow::Error> {
         }
         guard.clear_ready();
     }
->>>>>>> Stashed changes
 }
