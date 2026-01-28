@@ -29,7 +29,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
     info!("waiting for ctrl+c");
 
-    let mut events: RingBuf<_> = bpf.map_mut("EVENTS").unwrap().try_into()?;
+    let events: RingBuf<_> = bpf.map_mut("PACKET_LOG").unwrap().try_into()?;
     let mut poll = AsyncFd::new(events)?;
 
     loop {
