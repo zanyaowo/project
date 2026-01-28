@@ -11,3 +11,7 @@ build-ebpf: ## Build ebpf program
 clean:
 	@echo "clean taregt folder"
 	rm -rf service/firewall/target
+
+run-firewall:
+	@echo "run ebpf firewall"
+	RUSTC_BOOTSTRAP=1 sudo -E /home/zanya/.cargo/bin/cargo run --package xtask -- run
