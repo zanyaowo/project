@@ -5,3 +5,10 @@ edition = "2021"
 
 [dependencies]
 aya = "0.13.1"
+aya-log = "0.2"
+firewall-common = { path = "../firewall-common" }
+tokio = { version = "1.49.0", features = ["macros", "rt", "rt-multi-thread", "net", "signal"] }
+env_logger = "0.10"
+log = "0.4"
+anyhow = "1"
+bytes = "1"
