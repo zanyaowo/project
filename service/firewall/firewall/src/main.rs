@@ -1,51 +1,42 @@
-use aya::{include_bytes_aligned, Ebpf};
-use aya::maps::RingBuf;
-use aya::programs::{Xdp, XdpFlags};
-use aya_log::EbpfLogger;
-use firewall_common::PacketLog;
-use log::{info, warn};
-use std::net::Ipv4Addr;
-use tokio::io::unix::AsyncFd;
-use tokio::signal;
-use core::ptr;
+use aya::include_bytes_aligned;
+use aya::maps::{PerCpuHashMap, RingBuf};
+use firewall_common::{SessionKey, SessionValue};
+use crate::lib::controller::FirewallController;
+use crate::lib::logger::Logger;
+
+mod lib;
+mod tests;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     env_logger::init();
 
-    #[cfg(debug_assertions)]
-    let mut bpf = Ebpf::load(include_bytes_aligned!(env!("FIREWALL_BPF")))?;
+    let bytecode = include_bytes_aligned!(env!("FIREWALL_BPF"));
+    let mut controller = FirewallController::load(bytecode)?;
 
-    #[cfg(not(debug_assertions))]
-    let mut bpf = Ebpf::load(include_bytes_aligned!(env!("FIREWALL_BPF")))?;
+    let iface = std::env::var("IFACE").unwrap_or_else(|_| "wlp3s0".to_string());
+    controller.attach(&iface)?;
 
-    if let Err(e) = EbpfLogger::init(&mut bpf) {
-        warn!("failed to initialize eBPF logger: {}", e);
-    }
+    let mut session_map_data = None;
+    let mut event_map_data = None;
 
-    let program: &mut Xdp = bpf.program_mut("xdp_firewall").unwrap().try_into()?;
-    program.load()?;
-    program.attach("wlp3s0", XdpFlags::SKB_MODE).unwrap();
-
-    info!("waiting for ctrl+c");
-
-    let events: RingBuf<_> = bpf.map_mut("PACKET_LOG").unwrap().try_into()?;
-    let mut poll = AsyncFd::new(events)?;
-
-    loop {
-        let mut guard = poll.readable_mut().await?;
-        let ring_buf = guard.get_inner_mut();
-
-        // 3. 讀取所有可用的事件
-        while let Some(event) = ring_buf.next() {
-            let log = unsafe { ptr::read(event.as_ptr() as *const PacketLog) };
-            println!(
-                "SRC IP: {}, LEN: {}, ACTION: {}",
-                Ipv4Addr::from(log.ip_addr),
-                log.len,
-                log.action
-            );
+    // Split borrows: Iterate through maps to get both mutable references simultaneously
+    for (name, map) in controller.maps_mut() {
+        match name {
+            "SESSIONS" => session_map_data = Some(map),
+            "EVENTS_POOL" => event_map_data = Some(map),
+            _ => {}
         }
-        guard.clear_ready();
     }
+
+    let session_map = session_map_data.expect("SESSIONS map not found");
+    let event_map = event_map_data.expect("EVENTS_POOL map not found");
+
+    let session_table = PerCpuHashMap::try_from(session_map)?;
+    let event_ring_buf = RingBuf::try_from(event_map)?;
+
+    let mut logger = Logger::new(event_ring_buf, session_table)?;    
+    logger.start().await?;
+    
+    Ok(())
 }
