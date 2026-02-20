@@ -14,4 +14,8 @@ clean:
 
 run-firewall:
 	@echo "run ebpf firewall"
-	RUSTC_BOOTSTRAP=1 sudo -E /home/zanya/.cargo/bin/cargo run --package xtask -- run
+	cd service/firewall && RUSTC_BOOTSTRAP=1 sudo -E /home/zanya/.cargo/bin/cargo run --package xtask -- run --release
+
+run-test:
+	@echo "run test"
+	cd service/firewall && RUSTC_BOOTSTRAP=1 sudo -E /home/zanya/.cargo/bin/cargo test --package firewall --release -- tests::test::test_session_tracking --nocapture
