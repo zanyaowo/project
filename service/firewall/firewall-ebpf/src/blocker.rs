@@ -11,4 +11,3 @@ pub fn is_blocked(ip: u32) -> bool {
         BLOCK_LIST.get(&ip).is_some()
     }
 }
-
