@@ -1,14 +1,13 @@
 use std::net::Ipv4Addr;
-use tokio::test;
 use anyhow::Result;
 use aya::include_bytes_aligned;
 use aya::maps::HashMap;
 
-use firewall_common::{SessionKey, SessionValue};
+use firewall_common::session::{SessionKey, SessionValue};
 
 use crate::lib::controller::FirewallController;
 
-#[test]
+#[tokio::test]
 pub async fn test_session_tracking() -> Result<()> {
     let bytecode = include_bytes_aligned!(env!("FIREWALL_BPF"));
     let mut controller = FirewallController::load(bytecode)?;

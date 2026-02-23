@@ -1,5 +1,6 @@
 use aya::maps::{MapData, PerCpuHashMap, RingBuf};
-use firewall_common::{SessionEvent, ModelFeature, SessionKey, SessionValue};
+use firewall_common::session::{SessionEvent, SessionKey, SessionValue};
+use firewall_common::ModelFeature;
 use std::net::Ipv4Addr;
 use std::os::fd::AsRawFd;
 use tokio::io::unix::AsyncFd;
@@ -63,7 +64,7 @@ impl<'a> Logger<'a> {
                         bytes_sum as f64
                     };
 
-                    println!(
+                    log::info!(
                         "Log: Src={}:{}, Dst={}:{}, Proto={}, Bytes={}, Dur={:.4}s",
                         Ipv4Addr::from(session_key.src_ip), session_key.src_port,
                         Ipv4Addr::from(session_key.dst_ip), session_key.dst_port,

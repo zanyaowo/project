@@ -1,6 +1,6 @@
 use aya::include_bytes_aligned;
 use aya::maps::{PerCpuHashMap, RingBuf};
-use firewall_common::{SessionKey, SessionValue};
+use firewall_common::session::{SessionKey, SessionValue};
 use crate::lib::controller::FirewallController;
 use crate::lib::logger::Logger;
 
@@ -15,12 +15,13 @@ async fn main() -> Result<(), anyhow::Error> {
     let mut controller = FirewallController::load(bytecode)?;
 
     let iface = std::env::var("IFACE").unwrap_or_else(|_| "wlp3s0".to_string());
-    controller.attach(&iface)?;
+
+    controller.attach_xdp(&iface)?;
+    controller.attach_tc(&iface)?;
 
     let mut session_map_data = None;
     let mut event_map_data = None;
 
-    // Split borrows: Iterate through maps to get both mutable references simultaneously
     for (name, map) in controller.maps_mut() {
         match name {
             "SESSIONS" => session_map_data = Some(map),
