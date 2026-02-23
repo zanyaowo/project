@@ -1,5 +1,6 @@
+use std::time::SystemTime;
 use aya::maps::{MapData, PerCpuHashMap};
-use firewall_common::{SessionKey, SessionValue};
+use firewall_common::session::{SessionKey, SessionValue};
 
 const PROTO_TCP: u8 = 6;
 const PROTO_UDP: u8 = 17;
@@ -8,11 +9,8 @@ pub fn kill_old_sessions(session_table: &mut PerCpuHashMap<&mut MapData, Session
 
     let mut keys_to_remove = Vec::new();
 
-    let current_time_ns = unsafe {
-        let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
-        libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts);
-        (ts.tv_sec as u64) * 1_000_000_000 + (ts.tv_nsec as u64)
-    };
+    let current_time_ns = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos();
 
     for session in session_table.iter() {
         if let Ok((key, value)) = session {
