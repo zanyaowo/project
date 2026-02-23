@@ -3,7 +3,9 @@ use aya_ebpf::{
     macros::map,
     helpers::bpf_ktime_get_ns
 };
-use firewall_common::{SessionKey, SessionValue};
+use firewall_common::constants::{TCP_FLAG_FIN, TCP_FLAG_RST};
+use firewall_common::protocol::L4Info;
+use firewall_common::session::{SessionKey, SessionValue};
 use crate::PacketInfo;
 
 const SESSION_MAP_SIZE: u32 = 2048;
@@ -24,20 +26,38 @@ pub struct SessionUpdateParams {
 
 impl From<&PacketInfo> for SessionUpdateParams {
     fn from(packet: &PacketInfo) -> Self {
+        let src_ip = packet.src_ip;
+        let dst_ip = packet.dst_ip;
+        let proto = packet.proto;
+        let (src_port, dst_port, flag) = match packet.l4_info {
+            L4Info::Tcp(tcp) => (tcp.src_port, tcp.dst_port, tcp.flags),
+            L4Info::Udp(udp) => (udp.src_port, udp.dst_port, 0),
+            L4Info::Icmp(icmp) => (icmp.icmp_id, icmp.icmp_seq, 0),
+            L4Info::Unknown => (0, 0, 0),
+        };
+
         SessionUpdateParams{
-            src_ip: packet.src_ip,
-            dst_ip: packet.dst_ip,
-            src_port: packet.src_port,
-            dst_port: packet.dst_port,
-            proto: packet.proto,
-            len: packet.len,
+            src_ip,
+            dst_ip,
+            src_port,
+            dst_port,
+            proto,
+            len: packet.len as u64,
             payload_len: packet.payload_len,
-            flag: packet.flags,
+            flag,
         }
     }
 }
 
+fn is_connection_closed(flag: u8) -> bool{
+    if (flag & TCP_FLAG_RST != 0) || (flag & TCP_FLAG_FIN != 0){
+        return true;
+    };
+    false
+}
+
 //更新session
+#[inline(always)]
 pub fn update_session(params: &SessionUpdateParams) -> bool {
     let fwd_key = SessionKey{
         src_ip: params.src_ip,
@@ -65,9 +85,7 @@ pub fn update_session(params: &SessionUpdateParams) -> bool {
             (*session).last_seen_ts = bpf_ktime_get_ns();
             (*session).flag = params.flag;
 
-            if (params.flag & 0x04 != 0) || (params.flag & 0x01 != 0){
-                (*session).is_close = true;
-            }
+            (*session).is_close = is_connection_closed(params.flag);
             true
         }else if let Some(session) = SESSIONS.get_ptr_mut(&rev_key){
             (*session).resp_pkts += 1;
@@ -76,15 +94,11 @@ pub fn update_session(params: &SessionUpdateParams) -> bool {
             (*session).last_seen_ts = bpf_ktime_get_ns();
             (*session).flag = params.flag;
 
-            if (params.flag & 0x04 != 0) || (params.flag & 0x01 != 0){
-                (*session).is_close = true;
-            }
+            (*session).is_close = is_connection_closed(params.flag);
             true
         }else {
             let mut is_close = false;
-            if (params.flag & 0x04 != 0) || (params.flag & 0x01 != 0){
-                is_close = true;
-            }
+            is_close = is_connection_closed(params.flag);
 
             let new_session = SessionValue {
                 orig_bytes: params.payload_len,
