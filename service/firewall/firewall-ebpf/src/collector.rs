@@ -1,16 +1,17 @@
-use core::ptr::addr_of_mut;
 use aya_ebpf::{
     macros::map,
     maps::RingBuf,
-    programs::XdpContext,
     helpers::bpf_ktime_get_ns
 };
-use network_types::ip::{IpProto, Ipv4Hdr};
-use firewall_common::{SessionEvent, SessionKey, SessionValue};
-use crate::table::{SessionUpdateParams, SESSIONS};
+use aya_ebpf::maps::{PerCpuArray};
+use firewall_common::session::{SessionEvent, SessionKey};
+use crate::table::SessionUpdateParams;
 
 #[map]
 static mut EVENTS_POOL: RingBuf = RingBuf::with_byte_size(4096, 0);
+
+#[map]
+static mut DROP_EVENTS: PerCpuArray<u64> = PerCpuArray::with_max_entries(1, 0);
 
 // Updated signature to take raw values instead of Ipv4Hdr struct
 // This avoids the need to reconstruct the struct in main.rs
@@ -36,6 +37,10 @@ pub fn submit_event(
             (*event).len = session_update_params.len as u16;
             (*event).flag = session_update_params.flag;
             events.submit(0);
+        }else{
+            if let Some(mut counter) = DROP_EVENTS.get_ptr_mut(0) {
+                *counter+=1;
+            }
         }
     }
 }
