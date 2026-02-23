@@ -3,7 +3,6 @@ use aya_ebpf::{
     bindings::{xdp_action},
     macros::map
 };
-use aya_ebpf::helpers::bpf_csum_diff;
 use aya_ebpf::maps::Array;
 use aya_ebpf::programs::XdpContext;
 use network_types::eth::EthHdr;
@@ -22,7 +21,7 @@ const SYN_ACK_FLAG: u32 = 0x0012;
 static mut SECRET_KEY: Array<u32> = Array::with_max_entries(1, 0);
 
 #[inline(always)]
-pub fn calculate_cookie(src: u32, dst: u32, sport: u16, dport: u16, proto: u8, seq: u32) -> u32 {
+pub fn calculate_cookie(src: u32, dst: u32, sport: u16, dport: u16, proto: u8) -> u32 {
     let secret = unsafe { SECRET_KEY.get(0).unwrap_or(&0) };
     // Jenkins-like Hash / MurmurHash3 Mixer
     let mut h = *secret;
@@ -30,7 +29,6 @@ pub fn calculate_cookie(src: u32, dst: u32, sport: u16, dport: u16, proto: u8, s
     h = h.wrapping_add(dst);
     h = h.wrapping_add(((sport as u32) << 16) | (dport as u32));
     h = h.wrapping_add(proto as u32);
-    h = h.wrapping_add(seq);
 
     // Mixer function for better bit distribution
     h ^= h >> 16;
@@ -41,7 +39,9 @@ pub fn calculate_cookie(src: u32, dst: u32, sport: u16, dport: u16, proto: u8, s
     h
 }
 
-// RFC1624
+// RFC1624: Incremental Internet Checksum
+// 用於更新 TCP checksum 而無需重新計算整個封包
+// Formula: HC' = ~(C + (-m) + m') = ~(~HC + ~m + m')
 fn update_checksum(old_csum: u16, old_val: u32, new_val: u32) -> u16 {
     let mut sum = !old_csum as u32;
 
@@ -78,7 +78,7 @@ pub fn send_syn_cookie(ctx: &XdpContext) -> Result<u32, ()>{
     let proto = ip.proto as u8;
     let seq = u32::from_be_bytes(tcp.seq);
 
-    let cookie = calculate_cookie(src_ip, dst_ip, src_port, dst_port, proto, seq);
+    let cookie = calculate_cookie(src_ip, dst_ip, src_port, dst_port, proto);
 
     // 地址交換之後XDP_TX
     let tmp_mac = eth.src_addr;
