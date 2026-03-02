@@ -3,15 +3,13 @@ use aya_ebpf::{
     macros::map,
     helpers::bpf_ktime_get_ns
 };
-use firewall_common::constants::{TCP_FLAG_FIN, TCP_FLAG_RST};
+use firewall_common::constants::{SESSION_TABLE_SIZE, TCP_FLAG_FIN, TCP_FLAG_RST};
 use firewall_common::protocol::L4Info;
 use firewall_common::session::{SessionKey, SessionValue};
 use crate::PacketInfo;
 
-const SESSION_MAP_SIZE: u32 = 2048;
-
 #[map]
-pub static mut SESSIONS: LruPerCpuHashMap<SessionKey, SessionValue> = LruPerCpuHashMap::with_max_entries(SESSION_MAP_SIZE, 0);
+pub static mut SESSIONS: LruPerCpuHashMap<SessionKey, SessionValue> = LruPerCpuHashMap::with_max_entries(SESSION_TABLE_SIZE, 0);
 
 pub struct SessionUpdateParams {
     pub src_ip: u32,

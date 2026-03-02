@@ -4,11 +4,12 @@ use aya_ebpf::{
     helpers::bpf_ktime_get_ns
 };
 use aya_ebpf::maps::{PerCpuArray};
+use firewall_common::constants::EVENT_RING_BUF_SIZE;
 use firewall_common::session::{SessionEvent, SessionKey};
 use crate::table::SessionUpdateParams;
 
 #[map]
-static mut EVENTS_POOL: RingBuf = RingBuf::with_byte_size(4096, 0);
+static mut EVENTS_POOL: RingBuf = RingBuf::with_byte_size(EVENT_RING_BUF_SIZE, 0);
 
 #[map]
 static mut DROP_EVENTS: PerCpuArray<u64> = PerCpuArray::with_max_entries(1, 0);
