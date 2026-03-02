@@ -51,6 +51,12 @@ impl PacketContext for TcContext {
     }
 }
 
+/// Returns a raw pointer to `T` at `start + offset` after bounds-checking against `end`.
+///
+/// # Safety
+/// The caller must only dereference the returned pointer while the underlying packet buffer
+/// is still live. The caller is also responsible for ensuring that the memory at the
+/// computed address is a valid, initialized `T`.
 #[inline(always)]
 unsafe fn ptr_at<T>(start: usize, end: usize, offset: usize) -> Result<*const T, ()> {
     let len = size_of::<T>();
@@ -62,77 +68,106 @@ unsafe fn ptr_at<T>(start: usize, end: usize, offset: usize) -> Result<*const T,
     Ok(start.wrapping_add(offset) as *const T)
 }
 
-pub unsafe fn parse_eth<C: PacketContext>(ctx: &C) -> Result<(u16, usize), ()> {
-    let eth_hdr: *const EthHdr = ptr_at(ctx.data_start(), ctx.data_end(), 0)?;
-    let eth_type = u16::from_be((*eth_hdr).ether_type);
-    Ok((eth_type, size_of::<EthHdr>()))
-}
-
-pub unsafe fn parse_ipv4<C: PacketContext>(ctx: &C, offset: usize) -> Result<(Ipv4Hdr, usize), ()> {
-    let ipv4_hdr: *const Ipv4Hdr = ptr_at(ctx.data_start(), ctx.data_end(), offset)?;
-    Ok((*ipv4_hdr, offset + size_of::<Ipv4Hdr>()))
-}
-
-pub unsafe fn parse_ipv6<C: PacketContext>(ctx: &C, offset: usize) -> Result<(Ipv6Hdr, usize), ()> {
-    let hdr: *const Ipv6Hdr = ptr_at(ctx.data_start(), ctx.data_end(), offset)?;
-    Ok((*hdr, offset + size_of::<Ipv6Hdr>()))
-}
-
-pub unsafe fn parse_tcp<C: PacketContext>(ctx: &C, offset: usize) -> Result<TcpInfo, ()> {
-    let tcp_hdr: *const TcpHdr = ptr_at(ctx.data_start(), ctx.data_end(), offset)?;
-    let src_port = u16::from_be_bytes((*tcp_hdr).source);
-    let dst_port = u16::from_be_bytes((*tcp_hdr).dest);
-    let flag_ptr: *const u8 = ptr_at(ctx.data_start(), ctx.data_end(), offset + 13)?;
-    let flags: u8 = *flag_ptr;
-    let seq = u32::from_be_bytes((*tcp_hdr).seq);
-    let ack_seq = u32::from_be_bytes((*tcp_hdr).ack_seq);
-    let windows = u16::from_be_bytes((*tcp_hdr).window);
-
-    let offset_byte: u8 = *ptr_at(ctx.data_start(), ctx.data_end(), offset + 12)?;
-    let data_offset = (offset_byte & 0xF0) >> 4;
-    let header_len = (data_offset * 4) as u8;
-
-    Ok(TcpInfo{
-        src_port,
-        dst_port,
-        flags,
-        seq,
-        ack_seq,
-        windows,
-        header_len,
-    })
-}
-
-pub unsafe fn parse_udp<C: PacketContext>(ctx: &C, offset: usize) -> Result<UdpInfo, ()>{
-    let udp_hdr: *const UdpHdr = ptr_at(ctx.data_start(), ctx.data_end(), offset)?;
-    let src_port = u16::from_be_bytes((*udp_hdr).src);
-    let dst_port = u16::from_be_bytes((*udp_hdr).dst);
-
-    let header_len = size_of::<UdpHdr>() as u8;
-
-    Ok(UdpInfo{src_port, dst_port, header_len, padding: [0; 3] })
-}
-
-pub unsafe fn parse_icmp<C: PacketContext>(ctx: &C, offset: usize) -> Result<IcmpInfo, ()>{
-    let icmp_hdr: *const IcmpHdr = ptr_at(ctx.data_start(), ctx.data_end(), offset)?;
-    let icmp_type = (*icmp_hdr).type_;
-    let icmp_code = (*icmp_hdr).code;
-    let mut icmp_id = 0;
-    let mut icmp_seq = 0;
-
-    if icmp_type == 8 || icmp_type == 0 {
-        if let Ok(id_ptr) = ptr_at::<u16>(ctx.data_start(), ctx.data_end(), offset + 4) {
-            icmp_id = u16::from_be(*id_ptr);
-        }
-        if let Ok(seq_ptr) = ptr_at::<u16>(ctx.data_start(), ctx.data_end(), offset + 6) {
-            icmp_seq = u16::from_be(*seq_ptr);
-        }
+pub fn parse_eth<C: PacketContext>(ctx: &C) -> Result<(u16, usize), ()> {
+    // SAFETY: `ptr_at` verifies that [0, size_of::<EthHdr>()) lies within
+    // [data_start, data_end). `EthHdr` is `#[repr(C, packed)]`, so unaligned reads
+    // are valid and all field accesses are safe once bounds are confirmed.
+    unsafe {
+        let eth_hdr: *const EthHdr = ptr_at(ctx.data_start(), ctx.data_end(), 0)?;
+        let eth_type = u16::from_be((*eth_hdr).ether_type);
+        Ok((eth_type, size_of::<EthHdr>()))
     }
-
-    Ok(IcmpInfo{icmp_type, icmp_code, icmp_id, icmp_seq, header_len: 8, padding: [0; 1]})
 }
 
-pub unsafe fn parse_packet<C: PacketContext>(ctx: &C) -> Result<PacketInfo, ()> {
+pub fn parse_ipv4<C: PacketContext>(ctx: &C, offset: usize) -> Result<(Ipv4Hdr, usize), ()> {
+    // SAFETY: `ptr_at` verifies that [offset, offset + size_of::<Ipv4Hdr>()) lies within
+    // [data_start, data_end). `Ipv4Hdr` is `#[repr(C, packed)]`, allowing unaligned reads.
+    // The struct is copied out by value (`*ipv4_hdr`), so no lifetime dependency on the
+    // raw pointer remains after this function returns.
+    unsafe {
+        let ipv4_hdr: *const Ipv4Hdr = ptr_at(ctx.data_start(), ctx.data_end(), offset)?;
+        Ok((*ipv4_hdr, offset + size_of::<Ipv4Hdr>()))
+    }
+}
+
+pub fn parse_ipv6<C: PacketContext>(ctx: &C, offset: usize) -> Result<(Ipv6Hdr, usize), ()> {
+    // SAFETY: `ptr_at` verifies that [offset, offset + size_of::<Ipv6Hdr>()) lies within
+    // [data_start, data_end). `Ipv6Hdr` is `#[repr(C, packed)]`, allowing unaligned reads.
+    // The struct is copied out by value, so no raw pointer escapes this function.
+    unsafe {
+        let hdr: *const Ipv6Hdr = ptr_at(ctx.data_start(), ctx.data_end(), offset)?;
+        Ok((*hdr, offset + size_of::<Ipv6Hdr>()))
+    }
+}
+
+pub fn parse_tcp<C: PacketContext>(ctx: &C, offset: usize) -> Result<TcpInfo, ()> {
+    // SAFETY:
+    // - `ptr_at` for `tcp_hdr` verifies [offset, offset + size_of::<TcpHdr>()) is in bounds.
+    //   All field accesses (source, dest, seq, ack_seq, window) are within TcpHdr (20 bytes).
+    // - `ptr_at` at offset+12 (data-offset byte) and offset+13 (flags byte) are re-checked
+    //   individually because the eBPF verifier does not reason about struct sizes and requires
+    //   an explicit bounds check before every pointer dereference.
+    // - `TcpHdr` is `#[repr(C, packed)]`, so all field reads are unaligned-safe.
+    unsafe {
+        let tcp_hdr: *const TcpHdr = ptr_at(ctx.data_start(), ctx.data_end(), offset)?;
+        let src_port = u16::from_be_bytes((*tcp_hdr).source);
+        let dst_port = u16::from_be_bytes((*tcp_hdr).dest);
+        let seq      = u32::from_be_bytes((*tcp_hdr).seq);
+        let ack_seq  = u32::from_be_bytes((*tcp_hdr).ack_seq);
+        let windows  = u16::from_be_bytes((*tcp_hdr).window);
+
+        let flag_ptr: *const u8 = ptr_at(ctx.data_start(), ctx.data_end(), offset + 13)?;
+        let flags: u8 = *flag_ptr;
+
+        let offset_byte: u8 = *ptr_at(ctx.data_start(), ctx.data_end(), offset + 12)?;
+        let data_offset = (offset_byte & 0xF0) >> 4;
+        let header_len  = (data_offset * 4) as u8;
+
+        Ok(TcpInfo { src_port, dst_port, flags, seq, ack_seq, windows, header_len })
+    }
+}
+
+pub fn parse_udp<C: PacketContext>(ctx: &C, offset: usize) -> Result<UdpInfo, ()> {
+    // SAFETY: `ptr_at` verifies that [offset, offset + size_of::<UdpHdr>()) lies within
+    // [data_start, data_end). `UdpHdr` is `#[repr(C, packed)]`, allowing unaligned reads.
+    unsafe {
+        let udp_hdr: *const UdpHdr = ptr_at(ctx.data_start(), ctx.data_end(), offset)?;
+        let src_port = u16::from_be_bytes((*udp_hdr).src);
+        let dst_port = u16::from_be_bytes((*udp_hdr).dst);
+        let header_len = size_of::<UdpHdr>() as u8;
+
+        Ok(UdpInfo { src_port, dst_port, header_len, padding: [0; 3] })
+    }
+}
+
+pub fn parse_icmp<C: PacketContext>(ctx: &C, offset: usize) -> Result<IcmpInfo, ()> {
+    // SAFETY: `ptr_at` verifies that [offset, offset + size_of::<IcmpHdr>()) is in bounds.
+    // For echo request (type 8) and echo reply (type 0), additional `ptr_at` calls verify
+    // offset+4 (identifier) and offset+6 (sequence number) individually, as required by the
+    // eBPF verifier. Failures on those optional fields are silently ignored; the packet is
+    // still considered valid with id/seq defaulting to 0.
+    // `IcmpHdr` is `#[repr(C, packed)]`, so all field reads are unaligned-safe.
+    unsafe {
+        let icmp_hdr: *const IcmpHdr = ptr_at(ctx.data_start(), ctx.data_end(), offset)?;
+        let icmp_type = (*icmp_hdr).type_;
+        let icmp_code = (*icmp_hdr).code;
+        let mut icmp_id  = 0u16;
+        let mut icmp_seq = 0u16;
+
+        if icmp_type == 8 || icmp_type == 0 {
+            if let Ok(id_ptr) = ptr_at::<u16>(ctx.data_start(), ctx.data_end(), offset + 4) {
+                icmp_id = u16::from_be(*id_ptr);
+            }
+            if let Ok(seq_ptr) = ptr_at::<u16>(ctx.data_start(), ctx.data_end(), offset + 6) {
+                icmp_seq = u16::from_be(*seq_ptr);
+            }
+        }
+
+        Ok(IcmpInfo { icmp_type, icmp_code, icmp_id, icmp_seq, header_len: 8, padding: [0; 1] })
+    }
+}
+
+pub fn parse_packet<C: PacketContext>(ctx: &C) -> Result<PacketInfo, ()> {
     let (eth_type, l3_offset) = parse_eth(ctx)?;
     let mut ip_header_len = 0;
     let mut ip_total_len = 0;
