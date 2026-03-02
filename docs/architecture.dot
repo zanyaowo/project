@@ -1,0 +1,385 @@
+digraph firewall_architecture {
+  compound=true;
+  rankdir=TB;
+  splines=curved;
+  nodesep=0.6;
+  ranksep=1.2;
+  fontname="Helvetica";
+  node [fontname="Helvetica", fontsize=11, margin="0.2,0.1"];
+  edge [fontname="Helvetica", fontsize=9];
+
+  // ─────────────────────────────────────────
+  // 網路層
+  // ─────────────────────────────────────────
+  subgraph cluster_network {
+    label="網路層";
+    style=filled;
+    fillcolor="#ecf0f1";
+    color="#7f8c8d";
+    fontsize=14;
+    fontcolor="#2c3e50";
+
+    nic [
+      label="Network Interface\n(eth0 / wlp3s0)",
+      shape=cylinder,
+      style=filled,
+      fillcolor="#bdc3c7"
+    ];
+    kernel_stack [
+      label="Linux Network Stack",
+      shape=box,
+      style=filled,
+      fillcolor="#bdc3c7"
+    ];
+    app [
+      label="Application\n(Socket API)",
+      shape=box,
+      style=filled,
+      fillcolor="#bdc3c7"
+    ];
+  }
+
+  // ─────────────────────────────────────────
+  // Kernel Space：eBPF Programs
+  // ─────────────────────────────────────────
+  subgraph cluster_ebpf {
+    label="Kernel Space — firewall-ebpf";
+    style=filled;
+    fillcolor="#fdecea";
+    color="#c0392b";
+    fontsize=14;
+    fontcolor="#c0392b";
+
+    // XDP (Ingress)
+    subgraph cluster_xdp {
+      label="XDP Program  —  ingress (RX)";
+      style=filled;
+      fillcolor="#fad7d3";
+      color="#e74c3c";
+
+      xdp [
+        label="xdp_firewall\n(main.rs)",
+        shape=box,
+        style="filled,bold",
+        fillcolor="#e74c3c",
+        fontcolor=white
+      ];
+      xdp_parser [
+        label="parse_packet()\nparser.rs\n→ PacketInfo",
+        shape=box,
+        style=filled,
+        fillcolor="#f1948a"
+      ];
+      xdp_syn [
+        label="SYN Cookie\nsyn_cookie.rs\n(SYN flood defense)",
+        shape=box,
+        style=filled,
+        fillcolor="#f1948a"
+      ];
+      xdp_blocker [
+        label="is_blocked(src_ip)\nblocker.rs",
+        shape=box,
+        style=filled,
+        fillcolor="#f1948a"
+      ];
+      xdp_table [
+        label="update_session()\ntable.rs\n→ SESSIONS",
+        shape=box,
+        style=filled,
+        fillcolor="#f1948a"
+      ];
+      xdp_collector [
+        label="submit_event()\ncollector.rs\n→ EVENTS_POOL",
+        shape=box,
+        style=filled,
+        fillcolor="#f1948a"
+      ];
+
+      xdp -> xdp_parser;
+      xdp_parser -> xdp_syn     [label="TCP SYN", color="#9b59b6"];
+      xdp_parser -> xdp_blocker [label="others"];
+      xdp_blocker -> xdp_table  [label="pass", color="#27ae60"];
+      xdp_table -> xdp_collector;
+    }
+
+    // TC (Egress)
+    subgraph cluster_tc {
+      label="TC Egress  —  egress (TX)";
+      style=filled;
+      fillcolor="#fad7d3";
+      color="#e74c3c";
+
+      tc [
+        label="tc_egress\n(main.rs)",
+        shape=box,
+        style="filled,bold",
+        fillcolor="#e74c3c",
+        fontcolor=white
+      ];
+      tc_parser [
+        label="parse_packet()\nparser.rs\n→ PacketInfo",
+        shape=box,
+        style=filled,
+        fillcolor="#f1948a"
+      ];
+      tc_blocker [
+        label="is_blocked(dst_ip)\nblocker.rs",
+        shape=box,
+        style=filled,
+        fillcolor="#f1948a"
+      ];
+      tc_table [
+        label="update_session()\ntable.rs\n→ SESSIONS",
+        shape=box,
+        style=filled,
+        fillcolor="#f1948a"
+      ];
+
+      tc -> tc_parser;
+      tc_parser -> tc_blocker;
+      tc_blocker -> tc_table [label="pass", color="#27ae60"];
+    }
+  }
+
+  // ─────────────────────────────────────────
+  // eBPF Maps
+  // ─────────────────────────────────────────
+  subgraph cluster_maps {
+    label="eBPF Maps  —  Kernel ↔ Userspace Shared Memory";
+    style=filled;
+    fillcolor="#eafaf1";
+    color="#27ae60";
+    fontsize=14;
+    fontcolor="#1a5e34";
+    rank=same;
+
+    map_sessions [
+      label="SESSIONS\nLruPerCpuHashMap\nSessionKey → SessionValue\n65536 entries",
+      shape=cylinder,
+      style=filled,
+      fillcolor="#6abe75"
+    ];
+    map_events [
+      label="EVENTS_POOL\nRingBuf\nSessionEvent\n4096 bytes",
+      shape=cylinder,
+      style=filled,
+      fillcolor="#6abe75"
+    ];
+    map_block [
+      label="BLOCK_LIST\nHashMap\nIP → u32\n1024 entries",
+      shape=cylinder,
+      style=filled,
+      fillcolor="#6abe75"
+    ];
+    map_secret [
+      label="SECRET_KEY\nArray<u32>\n(SYN cookie secret)",
+      shape=cylinder,
+      style=filled,
+      fillcolor="#6abe75"
+    ];
+    map_drop [
+      label="DROP_EVENTS\nPerCpuArray<u64>\n(dropped event counter)",
+      shape=cylinder,
+      style=filled,
+      fillcolor="#6abe75"
+    ];
+  }
+
+  // ─────────────────────────────────────────
+  // Userspace Daemon
+  // ─────────────────────────────────────────
+  subgraph cluster_userspace {
+    label="Userspace Daemon — firewall  (Tokio async)";
+    style=filled;
+    fillcolor="#eaf2fb";
+    color="#2980b9";
+    fontsize=14;
+    fontcolor="#1a4e7a";
+
+    us_main [
+      label="main.rs\nload config → attach programs → start logger",
+      shape=box,
+      style="filled,bold",
+      fillcolor="#2980b9",
+      fontcolor=white
+    ];
+
+    subgraph cluster_lib {
+      label="lib/";
+      style=filled;
+      fillcolor="#d6eaf8";
+      color="#5dade2";
+
+      us_config [
+        label="config.rs\nConfig / NetworkConfig\nSecurityConfig / LogConfig\nMapsConfig",
+        shape=box,
+        style=filled,
+        fillcolor="#7ea6d6"
+      ];
+      us_controller [
+        label="controller.rs\nFirewallController\nload() / attach_xdp() / attach_tc()\n→ init SECRET_KEY",
+        shape=box,
+        style=filled,
+        fillcolor="#7ea6d6"
+      ];
+      us_logger [
+        label="logger.rs\nLogger::start()  async\naggregate_per_cpu()\nbuild_feature() → ModelFeature",
+        shape=box,
+        style=filled,
+        fillcolor="#7ea6d6"
+      ];
+      us_task [
+        label="task.rs\nkill_old_sessions()\n(cleanup expired flows)",
+        shape=box,
+        style=filled,
+        fillcolor="#7ea6d6"
+      ];
+    }
+
+    us_main -> us_config      [color="#7f8c8d"];
+    us_main -> us_controller  [color="#7f8c8d"];
+    us_main -> us_logger      [color="#7f8c8d"];
+    us_config -> us_controller [label="Arc<Config>", color="#7f8c8d", style=dashed];
+    us_config -> us_logger     [label="Arc<Config>", color="#7f8c8d", style=dashed];
+  }
+
+  // ─────────────────────────────────────────
+  // 設定檔
+  // ─────────────────────────────────────────
+  subgraph cluster_config_files {
+    label="設定檔 / Build";
+    style=dashed;
+    color="#e67e22";
+
+    config_toml [
+      label="config.toml\n[network]  iface, xdp_mode\n[security] cookie\n[logging]  level\n[maps]     sizes",
+      shape=note,
+      style=filled,
+      fillcolor="#fef9c3"
+    ];
+    build_rs [
+      label="build.rs\n(generate map_sizes.rs\nfrom config.toml\nat compile time)",
+      shape=note,
+      style=filled,
+      fillcolor="#fef9c3"
+    ];
+  }
+
+  // ─────────────────────────────────────────
+  // firewall-common  (shared types)
+  // ─────────────────────────────────────────
+  subgraph cluster_common {
+    label="firewall-common  —  no_std shared types  (kernel + userspace)";
+    style=filled;
+    fillcolor="#fef5e7";
+    color="#e67e22";
+    fontsize=14;
+    fontcolor="#6e3a00";
+    rank=same;
+
+    common_session [
+      label="session.rs\nSessionKey   (5-tuple, 16B)\nSessionValue (stats,  56B)\nSessionEvent",
+      shape=box,
+      style=filled,
+      fillcolor="#f5a623"
+    ];
+    common_protocol [
+      label="protocol.rs\nL4Info (enum)\nTcpInfo / UdpInfo / IcmpInfo\nPacketInfo",
+      shape=box,
+      style=filled,
+      fillcolor="#f5a623"
+    ];
+    common_constants [
+      label="constants.rs\nIPPROTO_*  /  TCP_FLAG_*\nMAP_SIZES  (from build.rs)",
+      shape=box,
+      style=filled,
+      fillcolor="#f5a623"
+    ];
+    common_model [
+      label="lib.rs\nModelFeature  (128B)\n(ML feature vector)",
+      shape=box,
+      style=filled,
+      fillcolor="#f5a623"
+    ];
+  }
+
+  // ═══════════════════════════════════════════
+  // EDGES：封包流
+  // ═══════════════════════════════════════════
+
+  // Ingress RX
+  nic -> xdp [
+    label=" RX packet",
+    color="#e74c3c",
+    penwidth=2.5
+  ];
+  xdp_syn -> nic [
+    label=" XDP_TX (SYN-ACK)",
+    color="#9b59b6",
+    style=dashed,
+    penwidth=1.5
+  ];
+  xdp_collector -> kernel_stack [
+    label=" XDP_PASS",
+    color="#27ae60",
+    penwidth=2
+  ];
+  kernel_stack -> app [color="#7f8c8d"];
+
+  // Egress TX
+  app -> tc [
+    label=" TX packet",
+    color="#2980b9",
+    style=dashed,
+    penwidth=2
+  ];
+  tc_table -> nic [
+    label=" TC_ACT_OK",
+    color="#27ae60",
+    style=dashed,
+    penwidth=1.5
+  ];
+
+  // ═══════════════════════════════════════════
+  // EDGES：eBPF Map 讀寫（kernel 側）
+  // ═══════════════════════════════════════════
+
+  xdp_table    -> map_sessions [label="R/W", color="#27ae60", penwidth=1.5];
+  tc_table     -> map_sessions [label="R/W", color="#27ae60", penwidth=1.5];
+  xdp_collector -> map_events  [label="write", color="#27ae60"];
+  xdp_collector -> map_drop    [label="inc (buf full)", color="#e74c3c", style=dashed];
+  xdp_blocker  -> map_block    [label="read", color="#c0392b"];
+  tc_blocker   -> map_block    [label="read", color="#c0392b"];
+  xdp_syn      -> map_secret   [label="read", color="#9b59b6"];
+
+  // ═══════════════════════════════════════════
+  // EDGES：Userspace ↔ Maps
+  // ═══════════════════════════════════════════
+
+  us_logger     -> map_events   [label="poll (AsyncFd)", color="#2980b9", dir=both, penwidth=1.5];
+  us_logger     -> map_sessions [label="lookup", color="#2980b9"];
+  us_controller -> map_block    [label="write rules", color="#2980b9"];
+  us_controller -> map_secret   [label="init secret", color="#2980b9"];
+
+  // ═══════════════════════════════════════════
+  // EDGES：設定檔
+  // ═══════════════════════════════════════════
+
+  config_toml -> us_config        [label="toml::from_str()", color="#e67e22"];
+  config_toml -> build_rs         [style=dashed, color="#e67e22"];
+  build_rs    -> common_constants [label="map_sizes.rs\n(compile-time)", color="#e67e22"];
+
+  // ═══════════════════════════════════════════
+  // EDGES：common types 被使用（虛線）
+  // ═══════════════════════════════════════════
+
+  common_session   -> xdp_table    [style=dashed, color="#e67e22", arrowhead=open];
+  common_session   -> tc_table     [style=dashed, color="#e67e22", arrowhead=open];
+  common_session   -> xdp_collector[style=dashed, color="#e67e22", arrowhead=open];
+  common_session   -> us_logger    [style=dashed, color="#e67e22", arrowhead=open];
+  common_protocol  -> xdp_parser   [style=dashed, color="#e67e22", arrowhead=open];
+  common_protocol  -> tc_parser    [style=dashed, color="#e67e22", arrowhead=open];
+  common_constants -> xdp_blocker  [style=dashed, color="#e67e22", arrowhead=open];
+  common_constants -> tc_blocker   [style=dashed, color="#e67e22", arrowhead=open];
+  common_model     -> us_logger    [style=dashed, color="#e67e22", arrowhead=open];
+}

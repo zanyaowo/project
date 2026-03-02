@@ -1,0 +1,128 @@
+// Control Plane — 初始化與設定流
+// 重點：Config → Userspace → Maps，以及 crate 相依與 build-time 常數生成
+digraph control_plane {
+  compound=true;
+  rankdir=LR;
+  splines=ortho;
+  nodesep=0.5;
+  ranksep=1.1;
+  fontname="Helvetica";
+  node [fontname="Helvetica", fontsize=11, margin="0.2,0.1"];
+  edge [fontname="Helvetica", fontsize=9];
+
+  // ── 設定層 ────────────────────────────────────────────
+  subgraph cluster_config {
+    label="設定層";
+    style=filled; fillcolor="#fef9e7"; color="#e67e22";
+    fontsize=13; fontcolor="#6e3a00";
+
+    toml [label="config.toml\n─────────────────\n[network]\n  iface, enable_xdp\n  enable_tc, xdp_mode\n[security]\n  enable_random_secret\n  custom_cookie\n[logging]\n  log_level\n[maps]\n  block_list_size\n  session_table_size\n  event_ring_buffer_size",
+          shape=note, style=filled, fillcolor="#fef3cd"];
+
+    build [label="build.rs\n(firewall-common)\n─────────────────\nRead config.toml\nat compile time\n→ emit map_sizes.rs",
+           shape=note, style=filled, fillcolor="#fef3cd"];
+  }
+
+  // ── firewall-common ───────────────────────────────────
+  subgraph cluster_common {
+    label="firewall-common  —  no_std shared types\n(Used by: firewall-ebpf + firewall userspace)";
+    style=filled; fillcolor="#fef5e7"; color="#e67e22";
+    fontsize=13; fontcolor="#6e3a00";
+
+    csess  [label="session.rs\nSessionKey   (5-tuple, 16B)\nSessionValue (stats,   56B)\nSessionEvent",
+            shape=box, style=filled, fillcolor="#f5a623"];
+    cproto [label="protocol.rs\nL4Info (enum)\nTcpInfo / UdpInfo / IcmpInfo\nPacketInfo",
+            shape=box, style=filled, fillcolor="#f5a623"];
+    cconst [label="constants.rs\nIPPROTO_*  /  TCP_FLAG_*\nMAP_SIZES  (← build.rs)",
+            shape=box, style=filled, fillcolor="#f5a623"];
+    cmodel [label="lib.rs\nModelFeature  (128B)\n(ML feature vector)",
+            shape=box, style=filled, fillcolor="#f5a623"];
+  }
+
+  // ── Userspace ─────────────────────────────────────────
+  subgraph cluster_us {
+    label="Userspace Daemon — firewall  (Tokio async)";
+    style=filled; fillcolor="#eaf2fb"; color="#2980b9";
+    fontsize=13; fontcolor="#1a4e7a";
+
+    main [label="main.rs\n────────────────\n1. load config.toml\n2. init logger\n3. attach XDP / TC\n4. start Logger loop",
+          shape=box, style="filled,bold", fillcolor="#2980b9", fontcolor=white];
+
+    subgraph cluster_lib {
+      label="lib/";
+      style=filled; fillcolor="#d6eaf8"; color="#5dade2";
+
+      cfg  [label="config.rs\nConfig\nNetworkConfig\nSecurityConfig\nLogConfig / MapsConfig",
+            shape=box, style=filled, fillcolor="#7ea6d6"];
+      ctrl [label="controller.rs\nFirewallController\n─────────────────\nload(bytecode, Arc<Config>)\nattach_xdp(iface)\nattach_tc(iface)",
+            shape=box, style=filled, fillcolor="#7ea6d6"];
+      log  [label="logger.rs\nLogger\n─────────────────\nstart()  ← async loop\naggregate_per_cpu()\nbuild_feature()\n→ ModelFeature",
+            shape=box, style=filled, fillcolor="#7ea6d6"];
+      task [label="task.rs\nkill_old_sessions()\n(cleanup expired flows)",
+            shape=box, style=filled, fillcolor="#7ea6d6"];
+    }
+
+    main -> cfg  [color="#7f8c8d"];
+    main -> ctrl [color="#7f8c8d"];
+    main -> log  [color="#7f8c8d"];
+    cfg  -> ctrl [label="Arc<Config>", color="#7f8c8d", style=dashed];
+    cfg  -> log  [label="Arc<Config>", color="#7f8c8d", style=dashed];
+  }
+
+  // ── eBPF Maps（精簡版，重點在初始化）─────────────────
+  subgraph cluster_maps {
+    label="eBPF Maps\n(初始化 by userspace)";
+    style=filled; fillcolor="#eafaf1"; color="#27ae60";
+    fontsize=13; fontcolor="#1a5e34";
+
+    msec   [label="SECRET_KEY\nArray<u32>",
+            shape=cylinder, style=filled, fillcolor="#6abe75"];
+    mblock [label="BLOCK_LIST\nHashMap<IP, u32>",
+            shape=cylinder, style=filled, fillcolor="#6abe75"];
+    msess  [label="SESSIONS\nLruPerCpuHashMap",
+            shape=cylinder, style=filled, fillcolor="#6abe75"];
+    mevt   [label="EVENTS_POOL\nRingBuf",
+            shape=cylinder, style=filled, fillcolor="#6abe75"];
+  }
+
+  // ── firewall-ebpf（精簡版，重點在用到 common 的 constants）
+  subgraph cluster_ebpf {
+    label="firewall-ebpf\n(eBPF bytecode — embedded into userspace binary)";
+    style=filled; fillcolor="#fdecea"; color="#c0392b";
+    fontsize=13; fontcolor="#c0392b";
+
+    ebpf [label="xdp_firewall  +  tc_egress\n─────────────────────────────\nSESSIONS capacity  = SESSION_TABLE_SIZE\nBLOCK_LIST capacity = BLOCK_LIST_SIZE\nEVENTS_POOL size   = EVENT_RING_BUF_SIZE",
+          shape=box, style=filled, fillcolor="#f1948a"];
+  }
+
+  // ══ 設定流 ═══════════════════════════════════════════
+  toml  -> cfg    [label="from_file() / toml::from_str()", color="#e67e22", penwidth=1.5];
+  toml  -> build  [label="read at\nbuild time", color="#e67e22", style=dashed];
+  build -> cconst [label="emit map_sizes.rs", color="#e67e22", penwidth=1.5];
+
+  // ══ common → ebpf（使用 MAP_SIZES 常數）══════════════
+  cconst -> ebpf  [label="SESSION_TABLE_SIZE\nBLOCK_LIST_SIZE\nEVENT_RING_BUF_SIZE",
+                   color="#e67e22", penwidth=1.5];
+  csess  -> ebpf  [label="SessionKey\nSessionValue\nSessionEvent",
+                   color="#e67e22", style=dashed];
+  cproto -> ebpf  [label="PacketInfo\nL4Info", color="#e67e22", style=dashed];
+
+  // ══ common → userspace ════════════════════════════════
+  csess  -> log   [label="SessionKey\nSessionValue", color="#e67e22", style=dashed];
+  cmodel -> log   [label="ModelFeature", color="#e67e22", style=dashed];
+
+  // ══ Userspace 初始化 Maps ════════════════════════════
+  ctrl -> msec   [label="init secret\n(rand / custom)", color="#2980b9", penwidth=1.5];
+  ctrl -> mblock [label="write block rules", color="#2980b9"];
+  log  -> mevt   [label="poll (AsyncFd)", color="#2980b9", dir=both];
+  log  -> msess  [label="lookup", color="#2980b9"];
+
+  // ══ eBPF 使用 Maps（啟動後）══════════════════════════
+  ebpf -> msess  [label="R/W sessions", color="#c0392b", style=dashed];
+  ebpf -> mevt   [label="write events", color="#c0392b", style=dashed];
+  ebpf -> msec   [label="read secret",  color="#9b59b6", style=dashed];
+  ebpf -> mblock [label="read blocks",  color="#c0392b", style=dashed];
+
+  // ══ Crate 相依關係 ════════════════════════════════════
+  
+}
