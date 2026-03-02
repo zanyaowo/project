@@ -16,3 +16,5 @@ clap = {version = "4", features = ["derive"]}
 futures = "0.3"
 libc = "0.2"
 rand = "0.10.0"
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"

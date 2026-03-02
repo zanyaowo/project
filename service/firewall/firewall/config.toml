@@ -1,0 +1,18 @@
+[network]
+interface = "wlp3s0"
+enable_xdp = true
+enable_tc = true
+xdp_mode = "skb" # 根據自身網卡調整 example => "skb", "native"
+
+[security]
+enable_random_secret = true
+# custom_cookie = 11233 如果random 關掉就可以自己指定
+
+[logging]
+log_level = "info"
+enable_session_log = false
+
+[maps]
+block_list_size = 1024
+session_table_size = 65536
+event_ring_buffer_size = 4096

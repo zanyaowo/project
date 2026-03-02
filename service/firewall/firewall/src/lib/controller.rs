@@ -4,27 +4,38 @@ use aya::maps::Map;
 use aya::maps::Array;
 use aya::programs::{Xdp, XdpFlags, tc, SchedClassifier};
 use aya_log::EbpfLogger;
+use std::sync::Arc;
 use log::warn;
 
+use crate::lib::config::{Config, XdpMode};
+
 pub struct FirewallController{
-    bpf: Ebpf
+    bpf: Ebpf,
+    config: Arc<Config>
 }
 
 impl FirewallController{
-    pub fn load(bytecode: &[u8]) -> anyhow::Result<Self>{
-        // 修正：移除 expect，直接使用 ? 處理錯誤
+    pub fn load(bytecode: &[u8], config: Arc<Config>) -> anyhow::Result<Self>{
         let mut bpf = Ebpf::load(bytecode)?;
+
         let mut secret_map = Array::try_from(
             bpf.map_mut("SECRET_KEY").context("SECRET_KEY map not found")?
         )?;
-        let secret = rand::random::<u32>();
-        secret_map.set(0, secret, 0)?;
+
+        // set secret key
+        if(config.security_config.enable_random_secret){
+            let secret = rand::random::<u32>();
+            secret_map.set(0, secret, 0)?;
+        }else{
+            let secret = config.security_config.custom_cookie.unwrap_or_else(rand::random);
+            secret_map.set(0, secret, 0)?;
+        }
 
         if let Err(e) = EbpfLogger::init(&mut bpf){
             warn!("failed to initialize eBPF logger: {}", e);
         }
 
-        Ok(Self{ bpf })
+        Ok(Self{ bpf, config })
     }
 
     pub fn attach_xdp(&mut self, iface: &str) -> anyhow::Result<()>{
@@ -33,7 +44,12 @@ impl FirewallController{
             .try_into()?;
 
         xdp_program.load().context("failed to load xdp program")?;
-        xdp_program.attach(iface, XdpFlags::SKB_MODE).context("failed to attach ebpf program")?;
+
+        match self.config.network_config.xdp_mode {
+            XdpMode::Native => xdp_program.attach(iface, XdpFlags::DRV_MODE),
+            XdpMode::Skb => xdp_program.attach(iface, XdpFlags::SKB_MODE),
+        }.context("failed to attach ebpf program")?;
+
         Ok(())
     }
 
@@ -46,7 +62,6 @@ impl FirewallController{
         program.attach(iface, aya::programs::TcAttachType::Egress)?;
         Ok(())
     }
-
 
     pub fn get_mut_map(&mut self, name: &str) -> Option<&mut Map>{
         self.bpf.map_mut(name)
