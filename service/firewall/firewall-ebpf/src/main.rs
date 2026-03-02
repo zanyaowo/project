@@ -51,11 +51,8 @@ unsafe fn ptr_at<T>(ctx: &XdpContext, offset: usize) -> Result<*const T, ()> {
     Ok((start + offset) as *const T)
 }
 
-unsafe fn try_xdp_firewall(ctx: XdpContext) -> Result<u32, ()> {
-    let pkt: PacketInfo = match parse_packet(&ctx) {
-        Ok(packet) => packet,
-        Err(_) => return Ok(xdp_action::XDP_PASS),
-    };
+fn try_xdp_firewall(ctx: XdpContext) -> Result<u32, ()> {
+    let pkt: PacketInfo = parse_packet(&ctx)?;
 
     if let L4Info::Tcp(tcp) = pkt.l4_info {
         if tcp.flags == TCP_FLAG_SYN{

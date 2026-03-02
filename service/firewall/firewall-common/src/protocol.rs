@@ -1,3 +1,5 @@
+use core::prelude::rust_2024::*;
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub enum L4Info{

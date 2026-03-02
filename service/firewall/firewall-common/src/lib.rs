@@ -1,9 +1,11 @@
 #![no_std]
+use core::prelude::rust_2024::*;
 
 pub mod session;
 pub mod constants;
 
 pub mod protocol;
+
 #[derive(Copy, Clone)]
 pub struct ModelFeature {
     pub duration: u64, // 持續時間
