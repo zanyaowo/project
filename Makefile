@@ -6,16 +6,20 @@ help:  ## Show this help message
 
 build-ebpf: ## Build ebpf program
 	@echo "start build:"
-	cd service/firewall && cargo +nightly build --package firewall-ebpf --target bpfel-unknown-none -Z build-std=core --release
+	cd service/firewall && RUSTC_BOOTSTRAP=1 /home/zanya/.cargo/bin/cargo +nightly build --package firewall-ebpf --target bpfel-unknown-none -Z build-std=core --release
 
 clean:
-	@echo "clean taregt folder"
+	@echo "clean target folder"
 	rm -rf service/firewall/target
 
-run-firewall:
+FIREWALL_BPF_PATH := $(abspath service/firewall/target/bpfel-unknown-none/release/firewall-ebpf)
+
+run-firewall: build-ebpf ## Build and run eBPF firewall
+	@echo "build firewall userspace..."
+	cd service/firewall && FIREWALL_BPF=$(FIREWALL_BPF_PATH) /home/zanya/.cargo/bin/cargo build --package firewall --release
 	@echo "run ebpf firewall"
-	cd service/firewall && RUSTC_BOOTSTRAP=1 sudo -E /home/zanya/.cargo/bin/cargo run --package xtask -- run --release
+	cd service/firewall && sudo -E ./target/release/firewall
 
 run-test:
 	@echo "run test"
-	cd service/firewall && RUSTC_BOOTSTRAP=1 sudo -E /home/zanya/.cargo/bin/cargo test --package firewall --release -- tests::test::test_session_tracking --nocapture
+	cd service/firewall && RUSTC_BOOTSTRAP=1 sudo -E /home/zanya/.cargo/bin/cargo +nightly test --package firewall --release -- tests::test::test_session_tracking --nocapture
