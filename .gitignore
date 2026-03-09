@@ -1,15 +1,20 @@
-# IDE & Editor Specific
+# IDE & Editor
 .idea/
 .vscode/
 .DS_Store
 Desktop.ini
+*.swp
+*.swo
 
-# Language & Framework Specific Artifacts
-
-## Rust / Cargo
+# Rust / Cargo
 **/target/
+**/target_tmp/
 
-## Python
+# eBPF compiled objects
+*.o
+*.bpf.o
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
@@ -20,7 +25,7 @@ env/
 .pytest_cache/
 .coverage
 
-## Node.js / npm / Astro
+# Node.js
 **/node_modules/
 .astro/
 dist/
@@ -29,7 +34,12 @@ npm-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# General & Project Specific
+# Secrets & local config overrides
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+
+# OS
+Thumbs.db
