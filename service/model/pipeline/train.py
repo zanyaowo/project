@@ -1,6 +1,6 @@
 """訓練流程：load → clean → feature → fit → save model。"""
 import argparse
-
+import load
 
 def parse_args() -> argparse.Namespace:
     pass
@@ -11,4 +11,6 @@ def run(args: argparse.Namespace) -> None:
 
 
 if __name__ == "__main__":
+    args = parse_args()
+    run(args)
     pass

@@ -20,11 +20,20 @@ def feature_select(
     lf: pl.LazyFrame,
     top_n: int = 20,
     n_estimators: int = 100,
+    sample_n: int = 200_000,
     output: str = "feature_importance.png",
 ) -> list[str]:
-    label = _extract_label(lf).collect().select("Label").to_numpy().flatten()
+    lf = _extract_label(lf)
+    tmp_path = "/tmp/_feature_select_tmp.parquet"
+    clean(lf).sink_parquet(tmp_path)
+    df = (
+        pl.scan_parquet(tmp_path)
+        .collect()
+        .sample(n=sample_n, shuffle=True, seed=42)
+    )
 
-    X_df = clean(lf.drop("Label")).collect()
+    label = df.select("Label").to_numpy().flatten()
+    X_df = df.drop("Label")
     feature_names = X_df.columns
     X = X_df.to_numpy()
 

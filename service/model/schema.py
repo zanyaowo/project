@@ -3,7 +3,7 @@
 RAW_COLS = []
 NUMERIC_RAW_COLS = []
 STRING_TO_FLOAT_COLS = ["Flow Bytes/s", "Flow Packets/s"]
-ID_COLS = ["Unnamed: 0", "Flow ID", "Source IP", "Destination IP", "Timestamp", " Label"]
+ID_COLS = ["Unnamed: 0", "Flow ID", "Source IP", "Destination IP", "Timestamp", "Label"]
 FEATURE_COLS = []
 
 PROTO_MOD = ...

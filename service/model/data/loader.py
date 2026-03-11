@@ -8,6 +8,9 @@ import polars as pl
 def load_features_csv(path: str) -> pl.LazyFrame:
     return pl.scan_csv(path, null_values=["", "Infinity", "NaN", "nan"])
 
+def load_features_parquet(path: str) -> pl.LazyFrame:
+     return pl.scan_parquet(path, null_values=["", "Infinity", "NaN", "nan"])
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True, help="Path to CIC IDS 2019 CSV")
