@@ -7,7 +7,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.inspection import permutation_importance
 
 from service.model.data.cleaner import clean
-from service.model.data.loader import load_features_csv
+from service.model.data.loader import _load_features_csv as load_features_csv
 
 
 def _extract_label(lf: pl.LazyFrame) -> pl.LazyFrame:
