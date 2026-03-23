@@ -1,6 +1,5 @@
-"""訓練流程：load → clean → feature → fit → save model。"""
+"""訓練流程：sample → clean → fit → save model。"""
 import argparse
-import load
 
 def parse_args() -> argparse.Namespace:
     pass

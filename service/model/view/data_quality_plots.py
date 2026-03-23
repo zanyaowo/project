@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import missingno
 
 from service.model.data.cleaner import clean
-from service.model.data.loader import load_features_parquet
+from service.model.data.loader import _load_features_parquet
 
 
 def plot_missing_counts(lf: pl.LazyFrame) -> None:
