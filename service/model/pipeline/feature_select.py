@@ -1,4 +1,5 @@
 import argparse
+import glob
 
 import numpy as np
 import polars as pl
@@ -6,38 +7,32 @@ import matplotlib.pyplot as plt
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.inspection import permutation_importance
 
-from service.model.data.cleaner import clean
-from service.model.data.loader import _load_features_csv as load_features_csv
+from service.model.data.sample import get_balance_sample_from_files
+from service.model.pipeline.correlation_filter import drop_correlated
 
 
-def _extract_label(lf: pl.LazyFrame) -> pl.LazyFrame:
+def _extract_label(lf: pl.DataFrame) -> pl.DataFrame:
     # set normal to 0, attack to 1
     return lf.with_columns(
         pl.col("Label") != "BENIGN"
     )
 
+
 def feature_select(
-    lf: pl.LazyFrame,
+    df: pl.DataFrame,
     top_n: int = 20,
     n_estimators: int = 100,
-    sample_n: int = 200_000,
+    corr_threshold: float = 0.9,
     output: str = "feature_importance.png",
 ) -> list[str]:
-    lf = _extract_label(lf)
-    tmp_path = "/tmp/_feature_select_tmp.parquet"
-    clean(lf).sink_parquet(tmp_path)
-    df = (
-        pl.scan_parquet(tmp_path)
-        .collect()
-        .sample(n=sample_n, shuffle=True, seed=42)
-    )
-
+    df = _extract_label(df)
     label = df.select("Label").to_numpy().flatten()
-    X_df = df.drop("Label")
+    X_df = df.select(pl.col(pl.Float64, pl.Int64, pl.Int32, pl.Float32).exclude("Inbound"))
     feature_names = X_df.columns
     X = X_df.to_numpy()
+    X, feature_names = drop_correlated(X, feature_names, threshold=corr_threshold)
 
-    forest = RandomForestClassifier(n_estimators=n_estimators, class_weight="balanced")
+    forest = RandomForestClassifier(n_estimators=n_estimators, class_weight="balanced", random_state=42)
     forest.fit(X, label)
 
     result = permutation_importance(forest, X, label, n_repeats=10, random_state=42, n_jobs=2)
@@ -74,11 +69,12 @@ def _draw_feature_importance(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", required=True, help="Path to CIC IDS 2019 CSV")
+#    parser.add_argument("--input", required=True, help="Path to parquet")
     parser.add_argument("--top", type=int, default=20, help="Number of top features")
     parser.add_argument("--trees", type=int, default=100, help="Number of RF estimators")
     parser.add_argument("--output", default="feature_importance.png", help="Output plot path")
     args = parser.parse_args()
 
-    lf = load_features_csv(args.input)
-    feature_select(lf, top_n=args.top, n_estimators=args.trees, output=args.output)
+    paths = glob.glob("/home/zanya/code/ebpf_project/project/service/model/dataset/parquet_clean/*.parquet")
+    df = get_balance_sample_from_files(paths, seed=42)
+    feature_select(df, top_n=args.top, n_estimators=args.trees, output=args.output)
