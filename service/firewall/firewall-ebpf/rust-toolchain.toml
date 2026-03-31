@@ -1,0 +1,8 @@
+[toolchain]
+channel = "nightly"
+components = ["rust-src", "llvm-tools-preview"]
+targets = ["bpfel-unknown-none"]
+
+[build]
+target = "bpfel-unknown-none"
+rustflags = ["-C", "target-cpu=probe"]
