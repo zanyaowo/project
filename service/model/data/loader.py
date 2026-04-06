@@ -26,6 +26,7 @@ def csv_to_parquet():
         folder_name = os.path.basename(os.path.dirname(file))
         parquet_filename = f"{folder_name}_{base_name}".replace('.csv', '.parquet')
         save_path = os.path.join(out_dir, parquet_filename)
+
         pl.scan_csv(file, schema_overrides=_CSV_FLOAT_OVERRIDES).sink_parquet(save_path)
         print(f"已成功轉換: {base_name} -> {save_path}")
 

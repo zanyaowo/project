@@ -1,6 +1,25 @@
+import numpy as np
 import polars as pl
 import glob
 from collections.abc import Callable
+
+
+def random_sample_lazyframe(lf: pl.LazyFrame, n: int, seed: int = 42) -> pl.LazyFrame:
+    """從 LazyFrame 隨機抽取 n 筆，不將全部資料載入記憶體。
+
+    做法：先從 metadata 取得總行數，再用 row_index + is_in filter
+    只 collect 抽到的行，記憶體峰值 ≈ 抽樣結果大小而非全量資料。
+    """
+    total = lf.select(pl.len()).collect().item()
+    sample_size = min(n, int(total))
+    rng = np.random.default_rng(seed)
+    indices = set(int(i) for i in rng.choice(int(total), size=sample_size, replace=False))
+    return (
+        lf
+        .with_row_index("__row__")
+        .filter(pl.col("__row__").is_in(indices))
+        .drop("__row__")
+    )
 
 
 def _unique_labels(paths: list[str], label_col: str) -> list[str]:
@@ -77,7 +96,7 @@ def get_balance_sample_from_files(
 
 def get_normal_sample_from_files(
         paths: list[str],
-        n: int = 50000,
+        n: int = 10000,
         label_col: str = "Label",
         normal_label = "BENIGN",
         seed: int = 42,
