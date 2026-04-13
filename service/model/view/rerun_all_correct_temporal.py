@@ -18,8 +18,8 @@ from service.model.data.sample import get_normal_sample_from_files
 BASE        = "service/model/dataset/parquet_clean"
 TRAIN_PATHS = sorted(glob.glob(f"{BASE}/03-11_*.parquet"))   # Nov（較早）→ 訓練
 TEST_PATHS  = sorted(glob.glob(f"{BASE}/01-12_*.parquet"))   # Dec（較晚）→ 測試
-IDS_D1      = f"{BASE}/test/DDoS1-Tuesday-20-02-2018_TrafficForML_CICFlowMeter.parquet"
-IDS_D2      = f"{BASE}/test/DDoS2-Wednesday-21-02-2018_TrafficForML_CICFlowMeter.parquet"
+IDS_D1      = f"{BASE}/test/IDS-2018-DDOS/DDoS1-Tuesday-20-02-2018_TrafficForML_CICFlowMeter.parquet"
+IDS_D2      = f"{BASE}/test/IDS-2018-DDOS/DDoS2-Wednesday-21-02-2018_TrafficForML_CICFlowMeter.parquet"
 
 TRAIN_N    = 30_000
 VAL_N_FILE = 5_000
