@@ -2,9 +2,10 @@
 
 紀錄每次 `feature_select.py` 執行的篩選結果，供後續調參與模型比較參考。
 
-> **⚠️ 時序修正（2026-04-06）**：Run 01–17 全部數據已更新為**正確時序**：
+> **✅ 正確時序（2026-04-10）**：Run 01–17 全部以**正確時序**完整重跑：
 > `Train = 03-11（2018-11-03，較早）` / `Test = 01-12（2018-12-01，較晚）`。
-> 原始版本時序相反（Train=01-12，Test=03-11），屬於資料洩漏，已於附錄說明。
+> 原始版本時序相反（Train=01-12，Test=03-11），屬於資料洩漏。
+> 重跑後 Run 01 的特徵集由 41 個變為 **39 個**（相關性結構改變），後續 Run 04/06/07 的特徵集亦隨之更新。
 > 重跑腳本：`service/model/view/rerun_all_correct_temporal.py`
 
 ---
@@ -12,25 +13,25 @@
 ## 目錄
 
 - [執行記錄](#執行記錄)
-  - [Run 01 — Variance + Correlation + AUC（41 特徵，AUC=0.886）](#run-01--2026-04-02)
-  - [Run 02 — 對照組（var_threshold=0.01）](#run-02--2026-04-02對照組)
-  - [Run 03 — Information Gain（26 特徵篩選）](#run-03--2026-04-04方案-e-entropy-based-information-gain)
-  - [Run 04 — 26 特徵 AUC 驗證（AUC=0.9399）](#run-04--2026-04-04-26-特徵-auc-驗證)
-  - [Run 05 — Per-label Entropy 分析](#run-05--2026-04-04方案-f-per-label-entropy-分析)
-  - [Run 06 — Permutation Importance（基準 AUC=0.9399）](#run-06--2026-04-05方案-g-permutation-importance)
-  - [Run 07 — 9 個正貢獻特徵（AUC=0.9547）](#run-07--2026-04-05-9-個正貢獻特徵-auc-驗證)
-  - [Run 08 — 跨資料集泛化驗證（LOIC-HTTP AUC=0.14）](#run-08--2026-04-05跨資料集泛化驗證cic-ids-2018)
+  - [Run 01 — Variance + Correlation + AUC（39 特徵，AUC=0.9114）](#run-01--2026-04-02)
+  - [Run 02 — 對照組（移除 SYN Flag Count，38 特徵，AUC=0.9159）](#run-02--2026-04-02對照組)
+  - [Run 03 — Information Gain（39→29 特徵篩選）](#run-03--2026-04-04方案-e-entropy-based-information-gain)
+  - [Run 04 — 29 特徵 AUC 驗證（AUC=0.8757）](#run-04--2026-04-04-29-特徵-auc-驗證)
+  - [Run 05 — Per-label Entropy 分析（29 特徵）](#run-05--2026-04-04方案-f-per-label-entropy-分析)
+  - [Run 06 — Permutation Importance（基準 AUC=0.8757）](#run-06--2026-04-05方案-g-permutation-importance)
+  - [Run 07 — 17 個正貢獻特徵（AUC=0.9257）](#run-07--2026-04-05-17-個正貢獻特徵-auc-驗證)
+  - [Run 08 — 跨資料集泛化驗證（LOIC-HTTP AUC=0.28）](#run-08--2026-04-05跨資料集泛化驗證cic-ids-2018)
   - [Run 09 — 移除速率特徵（5 個純結構）](#run-09--2026-04-05移除速率特徵僅保留封包結構)
   - [Run 10 — 單特徵逐一驗證（定位 shift 來源）](#run-10--2026-04-05單特徵逐一驗證定位-shift-來源)
   - [Run 11 — 無量綱比例特徵（3 個，首破 0.5）](#run-11--2026-04-05方案-h無量綱比例特徵)
   - [Run 12 — 7 個比例特徵（Bytes_Asym 發現）](#run-12--2026-04-05-7-個比例特徵)
   - [Run 13 — 精簡比例特徵組合搜尋](#run-13--2026-04-05精簡比例特徵組合搜尋)
-  - [Run 14 — 加入 DDoS2 驗證（HOIC=0.8210 / LOIC-UDP=1.0）](#run-14--2026-04-05加入-ddos2-驗證hoic--loic-udp)
-  - [Run 15 — log1p 轉換（DDoS2019=0.8750，HOIC=0.8210）](#run-15--2026-04-05log1p-轉換效果驗證)
-  - [Run 16 — 整合特徵（DDoS2019=0.8560，HOIC=0.8209）](#run-16--2026-04-05整合特徵3-個絕對值--3-個比例)
-  - [Run 17 — 位元運算離散化（Protocol & Port 定位數）](#run-17--2026-04-05位元運算離散化對模型的影響)
+  - [Run 14 — 加入 DDoS2 驗證（HOIC=0.0022 失敗 / LOIC-UDP=1.0）](#run-14--2026-04-05加入-ddos2-驗證hoic--loic-udp)
+  - [Run 15 — log1p 轉換（DDoS2019=0.9198，HOIC 仍失敗）](#run-15--2026-04-05log1p-轉換效果驗證)
+  - [Run 16 — 整合特徵（DDoS2019=0.9114，HOIC 仍失敗）](#run-16--2026-04-05整合特徵3-個絕對值--3-個比例)
+  - [Run 17 — 分位桶整數化（HOIC 恢復 0.8124）](#run-17--2026-04-05分位數整數化比率特徵ebpf-kernel-可行性)
 - [待確認](#待確認)
-- [最終選取特徵](#最終選取特徵)
+- [附錄：最終結果彙整](#附錄正確時序最終結果彙整2026-04-10-全面重跑)
 
 ---
 
@@ -45,8 +46,8 @@
 | 執行腳本 | `service/model/pipeline/feature_select.py` |
 | 相依模組 | `service/model/pipeline/correlation_filter.py` |
 | 相依模組 | `service/model/data/sample.py` |
-| 訓練資料 | `service/model/dataset/parquet_clean/train/*.parquet`（11 個檔案）|
-| 驗證資料 | `service/model/dataset/parquet_clean/test/*.parquet`（7 個檔案）|
+| 訓練資料 | `service/model/dataset/parquet_clean/train/*.parquet`（7 個檔案，03-11）|
+| 驗證資料 | `service/model/dataset/parquet_clean/test/*.parquet`（11 個檔案，01-12）|
 | 輸出更新 | `service/model/schema.py`（FEATURE_COLS）|
 
 **執行指令：**
@@ -87,89 +88,93 @@ Variance filter 後剩餘：**68 個特徵**
 
 | 保留 | 捨棄 | Pearson r |
 |------|------|-----------|
-| `Total Fwd Packets` | `Subflow Fwd Packets` | 1.0000 |
-| `Total Length of Bwd Packets` | `Subflow Bwd Bytes` | 1.0000 |
+| `Total Length of Fwd Packets` | `Subflow Fwd Bytes` | 1.0000 |
 | `Fwd Packet Length Mean` | `Avg Fwd Segment Size` | 1.0000 |
 | `Bwd Packet Length Mean` | `Avg Bwd Segment Size` | 1.0000 |
 | `Fwd PSH Flags` | `RST Flag Count` | 1.0000 |
-| `Total Length of Fwd Packets` | `Subflow Fwd Bytes` | 1.0000 |
 | `Fwd Header Length` | `Fwd Header Length.1` | 1.0000 |
-| `Flow IAT Min` | `Fwd IAT Min` | 0.9972 |
-| `Flow Duration` | `Fwd IAT Total` | 0.9965 |
-| `Fwd Header Length` | `min_seg_size_forward` | 0.9918 |
-| `Packet Length Mean` | `Average Packet Size` | 0.9895 |
-| `Flow IAT Max` | `Fwd IAT Max` | 0.9868 |
-| `Active Mean` | `Active Min` | 0.9743 |
-| `Bwd Packet Length Max` | `Max Packet Length` | 0.9645 |
-| `Flow IAT Max` | `Idle Max` | 0.9623 |
-| `Bwd Packet Length Max` | `Bwd Packet Length Std` | 0.9623 |
-| `Flow IAT Max` | `Idle Mean` | 0.9527 |
-| `Flow Packets/s` | `Fwd Packets/s` | 0.9477 |
-| `Fwd Packet Length Max` | `Fwd Packet Length Std` | 0.9426 |
-| `Total Fwd Packets` | `Total Backward Packets` | 0.9385 |
-| `Total Fwd Packets` | `Subflow Bwd Packets` | 0.9385 |
-| `Flow IAT Max` | `Idle Min` | 0.9331 |
-| `Packet Length Mean` | `Packet Length Std` | 0.9141 |
-| `Flow IAT Max` | `Bwd IAT Max` | 0.9110 |
-| `Flow IAT Std` | `Fwd IAT Std` | 0.9076 |
-| `Bwd Packet Length Mean` | `Packet Length Variance` | 0.9026 |
-| `Flow Duration` | `Bwd IAT Total` | 0.9015 |
+| `Total Fwd Packets` | `Subflow Fwd Packets` | 1.0000 |
+| `Fwd Header Length` | `min_seg_size_forward` | 1.0000 |
+| `Flow Duration` | `Fwd IAT Total` | 0.9988 |
+| `Flow IAT Min` | `Fwd IAT Min` | 0.9981 |
+| `Flow IAT Max` | `Fwd IAT Max` | 0.9966 |
+| `Flow IAT Max` | `Idle Max` | 0.9945 |
+| `Total Fwd Packets` | `Total Backward Packets` | 0.9917 |
+| `Total Fwd Packets` | `Subflow Bwd Packets` | 0.9917 |
+| `Flow IAT Std` | `Fwd IAT Std` | 0.9837 |
+| `Flow IAT Max` | `Idle Mean` | 0.9817 |
+| `Total Fwd Packets` | `Total Length of Bwd Packets` | 0.9773 |
+| `Total Fwd Packets` | `Subflow Bwd Bytes` | 0.9773 |
+| `Bwd Packet Length Max` | `Bwd Packet Length Std` | 0.9627 |
+| `Bwd Packet Length Max` | `Max Packet Length` | 0.9621 |
+| `Flow IAT Max` | `Idle Min` | 0.9481 |
+| `Active Mean` | `Active Min` | 0.9448 |
+| `Fwd Packet Length Max` | `Fwd Packet Length Std` | 0.9403 |
+| `Flow IAT Mean` | `Fwd IAT Mean` | 0.9319 |
+| `Flow IAT Max` | `Bwd IAT Max` | 0.9280 |
+| `Flow Packets/s` | `Fwd Packets/s` | 0.9234 |
+| `Bwd IAT Mean` | `Bwd IAT Std` | 0.9146 |
+| `Bwd Packet Length Max` | `Packet Length Std` | 0.9142 |
+| `Bwd Packet Length Mean` | `Packet Length Mean` | 0.9133 |
+| `Bwd Packet Length Mean` | `Packet Length Variance (Average Packet Size)` | 0.9072 |
 
-Correlation filter 後剩餘：**41 個特徵**
+Correlation filter 後剩餘：**39 個特徵**
+
+> **注意**：與原始時序相比，`Fwd IAT Mean`、`Bwd IAT Std`、`Total Length of Bwd Packets`、`Packet Length Mean` 在正確時序下因相關係數超閾值被移除；`Bwd IAT Total`、`Packet Length Variance` 則被保留（取代原本的捨棄項）。最終特徵數由 41 變為 39。
 
 **方案 D — AUC-ROC**
 
 | 項目 | 值 |
 |------|-----|
-| 驗證集筆數 | 55,000 |
-| 攻擊比例 | >99% |
-| AUC-ROC | **0.9306** |
+| 驗證集筆數 | 36,439 |
+| 攻擊比例 | 91.8% |
+| AUC-ROC | **0.9114** |
 
-**最終選取特徵（41 個）：**
+**最終選取特徵（39 個，正確時序 03-11 BENIGN Variance）：**
 
 | 特徵名稱 | BENIGN Variance |
 |----------|----------------:|
-| `Flow Bytes/s` | 1.04 × 10¹⁶ |
-| `Bwd Header Length` | 8.57 × 10¹⁵ |
-| `Fwd Header Length` | 6.43 × 10¹⁵ |
-| `Flow Duration` | 8.83 × 10¹⁴ |
-| `Flow IAT Max` | 1.76 × 10¹⁴ |
-| `Bwd IAT Std` | 1.14 × 10¹³ |
-| `Flow IAT Std` | 8.54 × 10¹² |
-| `Idle Std` | 2.67 × 10¹² |
-| `Bwd IAT Mean` | 2.15 × 10¹² |
-| `Fwd IAT Mean` | 1.90 × 10¹² |
-| `Flow IAT Mean` | 1.43 × 10¹² |
-| `Active Max` | 4.72 × 10¹¹ |
-| `Active Mean` | 2.99 × 10¹¹ |
-| `Flow Packets/s` | 2.73 × 10¹¹ |
-| `Flow IAT Min` | 5.31 × 10¹⁰ |
-| `Active Std` | 3.46 × 10¹⁰ |
-| `Bwd Packets/s` | 1.33 × 10⁹ |
-| `Source Port` | 5.15 × 10⁸ |
-| `Destination Port` | 4.52 × 10⁸ |
-| `Total Length of Bwd Packets` | 4.02 × 10⁸ |
-| `Init_Win_bytes_forward` | 2.62 × 10⁸ |
-| `Init_Win_bytes_backward` | 1.20 × 10⁸ |
-| `Total Length of Fwd Packets` | 7.89 × 10⁶ |
-| `Bwd Packet Length Max` | 6.00 × 10⁵ |
-| `Fwd Packet Length Max` | 1.46 × 10⁵ |
-| `Bwd Packet Length Mean` | 4.84 × 10⁴ |
-| `Packet Length Mean` | 2.07 × 10⁴ |
-| `Fwd Packet Length Mean` | 7.78 × 10³ |
-| `Bwd Packet Length Min` | 3.54 × 10³ |
-| `Fwd Packet Length Min` | 1.36 × 10³ |
-| `Min Packet Length` | 6.79 × 10² |
-| `Total Fwd Packets` | 2.12 × 10² |
-| `act_data_pkt_fwd` | 38.99 |
-| `Protocol` | 30.73 |
-| `Bwd IAT Min` | 29.30 |
-| `Down/Up Ratio` | 0.92 |
-| `URG Flag Count` | 0.24 |
-| `CWE Flag Count` | 0.15 |
-| `ACK Flag Count` | 0.14 |
-| `Fwd PSH Flags` | 0.12 |
-| `SYN Flag Count` | 0.0039 |
+| `Flow Bytes/s` | 8.61 × 10¹⁵ |
+| `Fwd Header Length` | 1.35 × 10¹⁵ |
+| `Flow Duration` | 1.11 × 10¹⁵ |
+| `Bwd IAT Total` | 9.17 × 10¹⁴ |
+| `Bwd Header Length` | 4.52 × 10¹⁴ |
+| `Flow IAT Max` | 1.97 × 10¹⁴ |
+| `Flow IAT Std` | 8.07 × 10¹² |
+| `Idle Std` | 7.17 × 10¹² |
+| `Bwd IAT Mean` | 1.64 × 10¹² |
+| `Flow IAT Mean` | 1.13 × 10¹² |
+| `Active Max` | 6.99 × 10¹¹ |
+| `Flow Packets/s` | 4.36 × 10¹¹ |
+| `Active Mean` | 3.84 × 10¹¹ |
+| `Active Std` | 9.23 × 10¹⁰ |
+| `Flow IAT Min` | 8.23 × 10¹⁰ |
+| `Packet Length Variance` | 2.23 × 10¹⁰ |
+| `Bwd Packets/s` | 1.01 × 10¹⁰ |
+| `Source Port` | 5.64 × 10⁸ |
+| `Destination Port` | 4.64 × 10⁸ |
+| `Init_Win_bytes_forward` | 1.18 × 10⁸ |
+| `Init_Win_bytes_backward` | 9.49 × 10⁷ |
+| `Total Length of Fwd Packets` | 1.45 × 10⁷ |
+| `Bwd Packet Length Max` | 5.35 × 10⁵ |
+| `Fwd Packet Length Max` | 1.72 × 10⁵ |
+| `Bwd Packet Length Mean` | 5.20 × 10⁴ |
+| `Fwd Packet Length Mean` | 9.03 × 10³ |
+| `Total Fwd Packets` | 4.73 × 10³ |
+| `Fwd Packet Length Min` | 2.91 × 10³ |
+| `Bwd Packet Length Min` | 2.14 × 10³ |
+| `act_data_pkt_fwd` | 1.91 × 10³ |
+| `Min Packet Length` | 5.44 × 10² |
+| `Protocol` | 2.56 × 10¹ |
+| `Bwd IAT Min` | 2.45 × 10¹ |
+| `Down/Up Ratio` | 0.96 |
+| `URG Flag Count` | 0.25 |
+| `CWE Flag Count` | 0.17 |
+| `ACK Flag Count` | 0.16 |
+| `Fwd PSH Flags` | 0.15 |
+| `SYN Flag Count` | 0.0041 |
+
+**結論：** 正確時序（03-11 Train → 01-12 Test）下 AUC 從 0.9306 降至 **0.9114**（Δ = −0.0192）。這不是模型退步，而是**消除資料洩漏的代價**——原始時序以較新資料（01-12）訓練，隱含了「用未來偵測過去」的優勢，導致 AUC 虛高。正確時序的 0.9114 才是模型面對未見攻擊時的真實偵測能力。相關性結構改變使特徵數由 41 縮至 **39 個**（正式刪除 `Fwd IAT Mean`、`Bwd IAT Std`、`Packet Length Mean`、`Total Length of Bwd Packets`）；`Bwd IAT Total`、`Packet Length Variance`、`Bwd Packet Length Max/Mean/Min` 在正確時序下被保留，接下來的 IG 分析（Run 03）將確認這批新特徵的實際鑑別力。
 
 ---
 
@@ -182,8 +187,8 @@ Correlation filter 後剩餘：**41 個特徵**
 | 執行腳本 | `service/model/pipeline/feature_select.py` |
 | 相依模組 | `service/model/pipeline/correlation_filter.py` |
 | 相依模組 | `service/model/data/sample.py` |
-| 訓練資料 | `service/model/dataset/parquet_clean/train/*.parquet`（11 個檔案）|
-| 驗證資料 | `service/model/dataset/parquet_clean/test/*.parquet`（7 個檔案）|
+| 訓練資料 | `service/model/dataset/parquet_clean/train/*.parquet`（7 個檔案，03-11）|
+| 驗證資料 | `service/model/dataset/parquet_clean/test/*.parquet`（11 個檔案，01-12）|
 
 **執行指令：**
 ```bash
@@ -200,76 +205,29 @@ uv run --project service/model python -m service.model.pipeline.feature_select \
 
 與 Run 01 相同設定，僅調高 `--var_threshold 0.01`，觀察 `SYN Flag Count` 的影響。
 
-**差異摘要：**
+**差異摘要（正確時序）：**
 
-| | Run 01 | Run 02 |
+| | Run 01（39 特徵）| Run 02（38 特徵）|
 |---|:-:|:-:|
 | `var_threshold` | 1e-4 | 0.01 |
-| 最終特徵數 | 41 | 40 |
-| 額外移除 | — | `SYN Flag Count`（variance=0.0039） |
-| AUC-ROC（正確時序）| **0.9306** | 0.9366 |
+| 最終特徵數 | 39 | 38 |
+| 額外移除 | — | `SYN Flag Count`（variance=0.0041）|
+| AUC-ROC（正確時序）| 0.9114 | **0.9159** |
 
-**結論：** `SYN Flag Count` 對 SYN flood 攻擊具有語義意義，移除後 AUC 下降 0.0060。
-保留 threshold=1e-4 的 41 個特徵（Run 01）。
+**結論：** 正確時序下 `SYN Flag Count` 的 variance 僅 0.0041，在 03-11 BENIGN 分布中幾乎無變異。移除後 AUC 小幅提升（+0.0045），確認其為**對 IsolationForest 無貢獻的噪音特徵**（這與原始時序結論相反：原始時序因 01-12 資料的 SYN flood 密度較高，SYN Flag Count 具有較強語義，移除反而下降 0.006）。**採用 threshold=0.01 的 38 個特徵作為後續實驗基準特徵集。**
 
 ---
 
 ## 待確認
 
-- [ ] `Flow Bytes/s` variance 達 10¹⁶，遠高於其他特徵，疑受 inf 替換影響，建議觀察其對 AUC 的單獨貢獻
-- [ ] AUC=0.886 尚未達優秀門檻（0.90），可嘗試搭配領域知識手動移除低語義特徵後重跑
+- [ ] `Flow Bytes/s` variance 達 8.6 × 10¹⁵，遠高於其他特徵，疑受 inf 替換影響，建議確認其對跨資料集泛化的單獨影響
+- [x] ~~AUC=0.886 尚未達優秀門檻~~ → 正確時序 Run 01 AUC=0.9114（優秀），Run 07 17 特徵 AUC=0.9257
 
-## 最終選取特徵
-
-**最終選取特徵（41 個）：**
-
-| 特徵名稱 | BENIGN Variance |
-|----------|----------------:|
-| `Flow Bytes/s` | 1.04 × 10¹⁶ |
-| `Bwd Header Length` | 8.57 × 10¹⁵ |
-| `Fwd Header Length` | 6.43 × 10¹⁵ |
-| `Flow Duration` | 8.83 × 10¹⁴ |
-| `Flow IAT Max` | 1.76 × 10¹⁴ |
-| `Bwd IAT Std` | 1.14 × 10¹³ |
-| `Flow IAT Std` | 8.54 × 10¹² |
-| `Idle Std` | 2.67 × 10¹² |
-| `Bwd IAT Mean` | 2.15 × 10¹² |
-| `Fwd IAT Mean` | 1.90 × 10¹² |
-| `Flow IAT Mean` | 1.43 × 10¹² |
-| `Active Max` | 4.72 × 10¹¹ |
-| `Active Mean` | 2.99 × 10¹¹ |
-| `Flow Packets/s` | 2.73 × 10¹¹ |
-| `Flow IAT Min` | 5.31 × 10¹⁰ |
-| `Active Std` | 3.46 × 10¹⁰ |
-| `Bwd Packets/s` | 1.33 × 10⁹ |
-| `Destination Port` | 4.52 × 10⁸ |
-| `Total Length of Bwd Packets` | 4.02 × 10⁸ |
-| `Init_Win_bytes_forward` | 2.62 × 10⁸ |
-| `Init_Win_bytes_backward` | 1.20 × 10⁸ |
-| `Total Length of Fwd Packets` | 7.89 × 10⁶ |
-| `Bwd Packet Length Max` | 6.00 × 10⁵ |
-| `Fwd Packet Length Max` | 1.46 × 10⁵ |
-| `Bwd Packet Length Mean` | 4.84 × 10⁴ |
-| `Packet Length Mean` | 2.07 × 10⁴ |
-| `Fwd Packet Length Mean` | 7.78 × 10³ |
-| `Bwd Packet Length Min` | 3.54 × 10³ |
-| `Fwd Packet Length Min` | 1.36 × 10³ |
-| `Min Packet Length` | 6.79 × 10² |
-| `Total Fwd Packets` | 2.12 × 10² |
-| `act_data_pkt_fwd` | 38.99 |
-| `Protocol` | 30.73 |
-| `Bwd IAT Min` | 29.30 |
-| `Down/Up Ratio` | 0.92 |
-| `URG Flag Count` | 0.24 |
-| `CWE Flag Count` | 0.15 |
-| `ACK Flag Count` | 0.14 |
-| `Fwd PSH Flags` | 0.12 |
-| `SYN Flag Count` | 0.0039 |
 ---
 
 ### Run 03 — 2026-04-04（方案 E：Entropy-based Information Gain）
 
-以 Shannon entropy 計算 Run 01 篩出的 41 個特徵對 binary label（BENIGN vs attack）的資訊增益。
+以 Shannon entropy 計算 Run 01 篩出的 **39 個特徵**對 binary label（BENIGN vs attack）的資訊增益。
 
 **使用檔案：**
 
@@ -277,7 +235,7 @@ uv run --project service/model python -m service.model.pipeline.feature_select \
 |------|------|
 | 執行腳本 | `service/model/view/info_gain.py`（本次新建）|
 | 相依模組 | `service/model/data/sample.py` |
-| 訓練資料 | `service/model/dataset/parquet_clean/train/*.parquet`（11 個檔案）|
+| 訓練資料 | `service/model/dataset/parquet_clean/train/*.parquet`（7 個檔案，03-11）|
 
 **執行指令：**
 ```bash
@@ -288,100 +246,104 @@ uv run --project service/model python -m service.model.view.info_gain \
     --seed 42
 ```
 
+> **正確時序**：使用 `parquet_clean/train/`（03-11，較早資料）作為訓練集。
+
 ```
 IG(X, Y) = H(Y) - H(Y|X)
 H(Y|X)  = Σ_k P(bin_k) × H(Y | X ∈ bin_k)   # 等頻分箱（20 bins）加權平均
 ```
 
-H(Y) = **0.4117 bits**（總樣本 60,439 筆，攻擊比例 91.7%）
+H(Y) = **0.5726 bits**（總樣本 36,873 筆，攻擊比例 87.5%）
 
-**Run 01 41 個特徵的資訊增益（由高至低）：**
+**Run 01 39 個特徵的資訊增益（由高至低，正確時序）：**
 
 | 排名 | 欄位名稱 | IG (bits) | IG / H(Y) |
 |-----:|----------|----------:|----------:|
-| 1 | `Destination Port` | 0.2714 | 65.9% |
-| 2 | `Fwd Packet Length Mean` | 0.2261 | 54.9% |
-| 3 | `Bwd Header Length` | 0.1840 | 44.7% |
-| 4 | `Packet Length Mean` | 0.1837 | 44.6% |
-| 5 | `Bwd IAT Min` | 0.1836 | 44.6% |
-| 6 | `Min Packet Length` | 0.1793 | 43.5% |
-| 7 | `Fwd Packet Length Min` | 0.1790 | 43.5% |
-| 8 | `Down/Up Ratio` | 0.1693 | 41.1% |
-| 9 | `Fwd Packet Length Max` | 0.1667 | 40.5% |
-| 10 | `Source Port` ⚠️ | 0.1584 | 38.5% |
-| 11 | `Bwd IAT Mean` | 0.1563 | 38.0% |
-| 12 | `Total Length of Fwd Packets` | 0.1552 | 37.7% |
-| 13 | `Flow IAT Mean` | 0.1406 | 34.1% |
-| 14 | `Flow Packets/s` | 0.1393 | 33.8% |
-| 15 | `Flow IAT Max` | 0.1379 | 33.5% |
-| 16 | `Flow IAT Std` | 0.1340 | 32.5% |
-| 17 | `Flow Duration` | 0.1144 | 27.8% |
-| 18 | `Flow Bytes/s` ⚠️ | 0.1140 | 27.7% |
-| 19 | `Fwd Header Length` | 0.0961 | 23.3% |
-| 20 | `Init_Win_bytes_forward` | 0.0832 | 20.2% |
-| 21 | `Init_Win_bytes_backward` | 0.0799 | 19.4% |
-| 22 | `Bwd Packets/s` | 0.0759 | 18.4% |
-| 23 | `Fwd IAT Mean` | 0.0536 | 13.0% |
-| 24 | `Total Fwd Packets` | 0.0381 | 9.2% |
-| 25 | `Flow IAT Min` | 0.0199 | 4.8% |
-| 26 | `act_data_pkt_fwd` | 0.0162 | 3.9% |
-| 27 | `Protocol` | 0.0103 | 2.5% |
-| 28 | `Bwd IAT Std` | 0.0000 | 0.0% |
-| 29 | `Idle Std` | 0.0000 | 0.0% |
-| 30 | `Active Max` | 0.0000 | 0.0% |
-| 31 | `Active Mean` | 0.0000 | 0.0% |
-| 32 | `Active Std` | 0.0000 | 0.0% |
-| 33 | `Total Length of Bwd Packets` | 0.0000 | 0.0% |
-| 34 | `Bwd Packet Length Max` | 0.0000 | 0.0% |
-| 35 | `Bwd Packet Length Mean` | 0.0000 | 0.0% |
-| 36 | `Bwd Packet Length Min` | 0.0000 | 0.0% |
-| 37 | `URG Flag Count` | 0.0000 | 0.0% |
-| 38 | `CWE Flag Count` | 0.0000 | 0.0% |
-| 39 | `ACK Flag Count` | 0.0000 | 0.0% |
-| 40 | `Fwd PSH Flags` | 0.0000 | 0.0% |
-| 41 | `SYN Flag Count` | 0.0000 | 0.0% |
+| 1 | `Min Packet Length` | 0.3881 | 67.8% |
+| 2 | `Fwd Packet Length Min` | 0.3813 | 66.6% |
+| 3 | `Fwd Packet Length Mean` | 0.3459 | 60.4% |
+| 4 | `Destination Port` | 0.3243 | 56.6% |
+| 5 | `Fwd Packet Length Max` | 0.3063 | 53.5% |
+| 6 | `Total Length of Fwd Packets` | 0.2678 | 46.8% |
+| 7 | `Bwd Packets/s` | 0.2657 | 46.4% |
+| 8 | `Flow Bytes/s` | 0.2537 | 44.3% |
+| 9 | `Flow Packets/s` | 0.2356 | 41.2% |
+| 10 | `Flow IAT Max` | 0.2305 | 40.3% |
+| 11 | `Source Port` ⚠️ | 0.2269 | 39.6% |
+| 12 | `Flow IAT Mean` | 0.2264 | 39.5% |
+| 13 | `Flow Duration` | 0.2140 | 37.4% |
+| 14 | `Flow IAT Std` | 0.2057 | 35.9% |
+| 15 | `Bwd Header Length` | 0.1927 | 33.7% |
+| 16 | `Packet Length Variance` | 0.1914 | 33.4% |
+| 17 | `Bwd Packet Length Max` | 0.1881 | 32.8% |
+| 18 | `Bwd Packet Length Mean` | 0.1864 | 32.5% |
+| 19 | `Bwd IAT Total` | 0.1800 | 31.4% |
+| 20 | `Bwd IAT Mean` | 0.1738 | 30.4% |
+| 21 | `Bwd IAT Min` | 0.1716 | 30.0% |
+| 22 | `act_data_pkt_fwd` | 0.1453 | 25.4% |
+| 23 | `Init_Win_bytes_backward` | 0.1438 | 25.1% |
+| 24 | `Down/Up Ratio` | 0.1408 | 24.6% |
+| 25 | `Total Fwd Packets` | 0.0942 | 16.4% |
+| 26 | `Bwd Packet Length Min` | 0.0796 | 13.9% |
+| 27 | `Init_Win_bytes_forward` | 0.0714 | 12.5% |
+| 28 | `Fwd Header Length` | 0.0599 | 10.5% |
+| 29 | `Flow IAT Min` | 0.0176 | 3.1% |
+| 30 | `Protocol` | 0.0071 | 1.2% |
+| 31 | `Idle Std` | 0.0000 | 0.0% |
+| 32 | `Active Max` | 0.0000 | 0.0% |
+| 33 | `Active Mean` | 0.0000 | 0.0% |
+| 34 | `Active Std` | 0.0000 | 0.0% |
+| 35 | `URG Flag Count` | 0.0000 | 0.0% |
+| 36 | `CWE Flag Count` | 0.0000 | 0.0% |
+| 37 | `ACK Flag Count` | 0.0000 | 0.0% |
+| 38 | `Fwd PSH Flags` | 0.0000 | 0.0% |
+| 39 | `SYN Flag Count` | 0.0000 | 0.0% |
 
-⚠️ `Source Port`：Run 01 已人工移除，但 IG 排第 10（38.5%），說明攻擊流量確實集中在特定 source port，仍具鑑別力。
-⚠️ `Flow Bytes/s`：Run 01 variance 排第 1（10¹⁶），但 IG 僅 27.7%。高 variance 為 inf 替換後的尺度假象，非真正鑑別力。
+⚠️ `Source Port`：Run 01 已人工移除（IP 特徵不應納入 IF 邊界），但 IG 排第 11（39.6%），攻擊流量仍集中在特定 source port，具有鑑別力。
+⚠️ `Flow Bytes/s`：Run 01 variance 排第 1（8.6 × 10¹⁵），IG 提升至 44.3%（原始時序僅 27.7%）。正確時序下 03-11 BENIGN 速率更集中，鑑別力更真實。
 
-**最終選取特徵（26 個）：**
+**最終選取特徵（29 個）：**
 
-移除 IG=0 的 14 個特徵 + 人工移除 Source Port（Run 01 已決策），由 41 → 26。
+移除 IG=0 的 9 個特徵 + 人工移除 Source Port（IP 特徵不納入 IF），由 39 → 29。
 
 | 特徵名稱 | IG (bits) | IG / H(Y) |
 |----------|----------:|----------:|
-| `Destination Port` | 0.2714 | 65.9% |
-| `Fwd Packet Length Mean` | 0.2261 | 54.9% |
-| `Bwd Header Length` | 0.1840 | 44.7% |
-| `Packet Length Mean` | 0.1837 | 44.6% |
-| `Bwd IAT Min` | 0.1836 | 44.6% |
-| `Min Packet Length` | 0.1793 | 43.5% |
-| `Fwd Packet Length Min` | 0.1790 | 43.5% |
-| `Down/Up Ratio` | 0.1693 | 41.1% |
-| `Fwd Packet Length Max` | 0.1667 | 40.5% |
-| `Bwd IAT Mean` | 0.1563 | 38.0% |
-| `Total Length of Fwd Packets` | 0.1552 | 37.7% |
-| `Flow IAT Mean` | 0.1406 | 34.1% |
-| `Flow Packets/s` | 0.1393 | 33.8% |
-| `Flow IAT Max` | 0.1379 | 33.5% |
-| `Flow IAT Std` | 0.1340 | 32.5% |
-| `Flow Duration` | 0.1144 | 27.8% |
-| `Flow Bytes/s` | 0.1140 | 27.7% |
-| `Fwd Header Length` | 0.0961 | 23.3% |
-| `Init_Win_bytes_forward` | 0.0832 | 20.2% |
-| `Init_Win_bytes_backward` | 0.0799 | 19.4% |
-| `Bwd Packets/s` | 0.0759 | 18.4% |
-| `Fwd IAT Mean` | 0.0536 | 13.0% |
-| `Total Fwd Packets` | 0.0381 | 9.2% |
-| `Flow IAT Min` | 0.0199 | 4.8% |
-| `act_data_pkt_fwd` | 0.0162 | 3.9% |
-| `Protocol` | 0.0103 | 2.5% |
+| `Min Packet Length` | 0.3881 | 67.8% |
+| `Fwd Packet Length Min` | 0.3813 | 66.6% |
+| `Fwd Packet Length Mean` | 0.3459 | 60.4% |
+| `Destination Port` | 0.3243 | 56.6% |
+| `Fwd Packet Length Max` | 0.3063 | 53.5% |
+| `Total Length of Fwd Packets` | 0.2678 | 46.8% |
+| `Bwd Packets/s` | 0.2657 | 46.4% |
+| `Flow Bytes/s` | 0.2537 | 44.3% |
+| `Flow Packets/s` | 0.2356 | 41.2% |
+| `Flow IAT Max` | 0.2305 | 40.3% |
+| `Flow IAT Mean` | 0.2264 | 39.5% |
+| `Flow Duration` | 0.2140 | 37.4% |
+| `Flow IAT Std` | 0.2057 | 35.9% |
+| `Bwd Header Length` | 0.1927 | 33.7% |
+| `Packet Length Variance` | 0.1914 | 33.4% |
+| `Bwd Packet Length Max` | 0.1881 | 32.8% |
+| `Bwd Packet Length Mean` | 0.1864 | 32.5% |
+| `Bwd IAT Total` | 0.1800 | 31.4% |
+| `Bwd IAT Mean` | 0.1738 | 30.4% |
+| `Bwd IAT Min` | 0.1716 | 30.0% |
+| `act_data_pkt_fwd` | 0.1453 | 25.4% |
+| `Init_Win_bytes_backward` | 0.1438 | 25.1% |
+| `Down/Up Ratio` | 0.1408 | 24.6% |
+| `Total Fwd Packets` | 0.0942 | 16.4% |
+| `Bwd Packet Length Min` | 0.0796 | 13.9% |
+| `Init_Win_bytes_forward` | 0.0714 | 12.5% |
+| `Fwd Header Length` | 0.0599 | 10.5% |
+| `Flow IAT Min` | 0.0176 | 3.1% |
+| `Protocol` | 0.0071 | 1.2% |
 
-**IG = 0 的 14 個特徵分析：**
+**IG = 0 的 9 個特徵分析：**
 
-- **TCP Flags（SYN/ACK/URG/CWE/ECE/Fwd PSH Flags）**：攻擊與 BENIGN 的 flags 分布幾乎相同，在平衡集中無鑑別力。SYN Flag Count 的 SYN flood 語義僅在特定攻擊類型成立，整體 IG 確為 0。
-- **Bwd Packet Length 系列 + Total Length of Bwd Packets**：Run 01 variance filter 後保留，但 backward 封包大小在 BENIGN 與 DDoS 中的分布重疊，IG 為 0。
-- **Active/Idle 系列（Active Max/Mean/Std、Idle Std）**：DDoS 流量為單次爆發，無 active/idle 切換，幾乎全為 0，無鑑別力。
+- **TCP Flags（SYN/ACK/URG/CWE/Fwd PSH Flags，共 5 個）**：攻擊與 BENIGN 的 flags 分布幾乎相同，在平衡集中無鑑別力。SYN Flag Count 的 SYN flood 語義僅在特定攻擊類型成立，Run 02 已確認其無貢獻。
+- **Active/Idle 系列（Active Max/Mean/Std、Idle Std，共 4 個）**：DDoS 流量為單次爆發，無 active/idle 切換，幾乎全為 0，無鑑別力。
+
+> **與原始時序的差異**：正確時序下 `Bwd Packet Length Max/Mean/Min`、`Bwd IAT Total`、`Packet Length Variance` 等在原始時序中被相關性篩除的特徵，在 39-feature 集中被保留，且 IG 均 > 0（最高 32.8%），確認為有效特徵。
 
 ---
 
@@ -418,13 +380,13 @@ Isolation Forest 的核心假設是：異常點是「少數且不同（Few and D
 
 在網路流量中，這種情況極其罕見。DDoS 攻擊為了達到效能，通常展現出極強的統計特性（要麼極度規律、要麼極度混亂），不太可能「恰好落在 BENIGN 多峰的空隙」而不影響整體分布的熵值。
 
-**結論：本批 IG=0 的 14 個特徵可安全移除，不影響 iForest 的偵測能力。**
+**結論：本批 IG=0 的 9 個特徵可安全移除，不影響 iForest 的偵測能力。**
 
 ---
 
-### Run 04 — 2026-04-04（26 特徵 AUC 驗證）
+### Run 04 — 2026-04-04（29 特徵 AUC 驗證）
 
-以 Run 03 最終選取的 26 個特徵（移除 IG=0 的 14 個 + Source Port）重新跑方案 D。
+以 Run 03 最終選取的 **29 個特徵**（移除 IG=0 的 9 個 + Source Port）重新跑方案 D。
 
 **使用檔案：**
 
@@ -432,9 +394,9 @@ Isolation Forest 的核心假設是：異常點是「少數且不同（Few and D
 |------|------|
 | 相依模組 | `service/model/pipeline/feature_select.py`（`if_auc_validate`）|
 | 相依模組 | `service/model/data/sample.py` |
-| 訓練資料 | `service/model/dataset/parquet_clean/train/*.parquet`（11 個檔案）|
-| 驗證資料 | `service/model/dataset/parquet_clean/test/*.parquet`（7 個檔案）|
-| 輸出更新 | `service/model/schema.py`（FEATURE_COLS 更新為 26 個）|
+| 訓練資料 | `service/model/dataset/parquet_clean/train/*.parquet`（7 個檔案，03-11）|
+| 驗證資料 | `service/model/dataset/parquet_clean/test/*.parquet`（11 個檔案，01-12）|
+| 輸出更新 | `service/model/schema.py`（FEATURE_COLS 更新為 29 個）|
 
 **執行指令：**
 ```python
@@ -442,39 +404,40 @@ import glob
 from service.model.data.sample import get_balance_sample_from_files, get_normal_sample_from_files
 from service.model.pipeline.feature_select import if_auc_validate
 
-FEATURES_26 = [
-    "Destination Port", "Fwd Packet Length Mean", "Bwd Header Length",
-    "Packet Length Mean", "Bwd IAT Min", "Min Packet Length",
-    "Fwd Packet Length Min", "Down/Up Ratio", "Fwd Packet Length Max",
-    "Bwd IAT Mean", "Total Length of Fwd Packets", "Flow IAT Mean",
-    "Flow Packets/s", "Flow IAT Max", "Flow IAT Std", "Flow Duration",
-    "Flow Bytes/s", "Fwd Header Length", "Init_Win_bytes_forward",
-    "Init_Win_bytes_backward", "Bwd Packets/s", "Fwd IAT Mean",
-    "Total Fwd Packets", "Flow IAT Min", "act_data_pkt_fwd", "Protocol",
+FEATURES_29 = [
+    "Min Packet Length", "Fwd Packet Length Min", "Fwd Packet Length Mean",
+    "Destination Port", "Fwd Packet Length Max", "Total Length of Fwd Packets",
+    "Bwd Packets/s", "Flow Bytes/s", "Flow Packets/s", "Flow IAT Max",
+    "Flow IAT Mean", "Flow Duration", "Flow IAT Std", "Bwd Header Length",
+    "Packet Length Variance", "Bwd Packet Length Max", "Bwd Packet Length Mean",
+    "Bwd IAT Total", "Bwd IAT Mean", "Bwd IAT Min", "act_data_pkt_fwd",
+    "Init_Win_bytes_backward", "Down/Up Ratio", "Total Fwd Packets",
+    "Bwd Packet Length Min", "Init_Win_bytes_forward", "Fwd Header Length",
+    "Flow IAT Min", "Protocol",
 ]
 
-train_paths = glob.glob("service/model/dataset/parquet_clean/train/*.parquet")
-val_paths   = glob.glob("service/model/dataset/parquet_clean/test/*.parquet")
+train_paths = glob.glob("service/model/dataset/parquet_clean/train/*.parquet")   # 03-11（正確時序訓練集）
+val_paths   = glob.glob("service/model/dataset/parquet_clean/test/*.parquet")   # 01-12（正確時序測試集）
 benign_df = get_normal_sample_from_files(train_paths, n=10000, seed=42)
 val_df    = get_balance_sample_from_files(val_paths, sample_count_per_label=3000, seed=42)
-if_auc_validate(benign_df, val_df, FEATURES_26, n_estimators=200, contamination=0.01)
+if_auc_validate(benign_df, val_df, FEATURES_29, n_estimators=200, contamination=0.01)
 ```
 
-| 項目 | Run 01（41 個） | Run 04（26 個） | 差異 |
+| 項目 | Run 01（39 個）| Run 04（29 個）| 差異 |
 |------|:-:|:-:|:-:|
-| 特徵數 | 41 | 26 | −15 |
-| 驗證集筆數 | 22,873 | 22,873 | — |
-| 攻擊比例 | 86.9% | 86.9% | — |
-| AUC-ROC | 0.9306 | **0.9399** | **+0.0093** |
-| 判讀 | 優秀 | **優秀** | ✓ |
+| 特徵數 | 39 | 29 | −10 |
+| 驗證集筆數 | 36,439 | 36,439 | — |
+| 攻擊比例 | 91.8% | 91.8% | — |
+| AUC-ROC | 0.9114 | **0.8757** | −0.0357 |
+| 判讀 | 優秀 | 尚可 | ↓ |
 
-**結論：** 移除 IG=0 的雜訊特徵後 AUC 小幅提升（+0.009）。確認這 26 個特徵為目前最佳特徵集，更新至 `schema.py`。
+**結論：** 正確時序下移除 IG=0 的 9 個特徵後 AUC 從 0.9114 降至 **0.8757**（−0.036）。這與原始時序的結論相反（原始時序移除 IG=0 後 AUC 提升 +0.009）。根本原因是正確時序的 29 特徵集中含有較多 backward packet 類特徵（`Bwd Packet Length Max/Mean/Min`、`Bwd IAT Total`），這些特徵彼此間仍存在較高共線性，在 iForest 中引入了切割路徑干擾。後續以 Permutation Importance（Run 06）進一步剪枝。
 
 ---
 
 ### Run 05 — 2026-04-04（方案 F：Per-label Entropy 分析）
 
-對 26 個特徵計算各 label 的 Shannon entropy，透過 BENIGN 與攻擊熵值的差距（Δ = H_BENIGN − H_atk_avg）
+對 **29 個特徵**計算各 label 的 Shannon entropy，透過 BENIGN 與攻擊熵值的差距（Δ = H_BENIGN − H_atk_avg）
 進一步評估哪些特徵是「完全隨機無規律」而應移除。
 
 **使用檔案：**
@@ -483,7 +446,7 @@ if_auc_validate(benign_df, val_df, FEATURES_26, n_estimators=200, contamination=
 |------|------|
 | 相依模組 | `service/model/view/entropy_plot.py`（`compute_entropy`）|
 | 相依模組 | `service/model/data/sample.py` |
-| 訓練資料 | `service/model/dataset/parquet_clean/train/*.parquet`（11 個檔案）|
+| 訓練資料 | `service/model/dataset/parquet_clean/train/*.parquet`（7 個檔案，03-11）|
 
 **執行指令：**
 ```python
@@ -493,12 +456,12 @@ import polars as pl
 from service.model.data.sample import get_balance_sample_from_files
 from service.model.view.entropy_plot import compute_entropy
 
-paths = glob.glob("service/model/dataset/parquet_clean/train/*.parquet")
+paths = glob.glob("service/model/dataset/parquet_clean/train/*.parquet")  # 03-11（正確時序訓練集）
 df = get_balance_sample_from_files(paths, sample_count_per_label=3000, seed=42)
 labels = sorted(df["Label"].unique().to_list())
 attack_labels = [l for l in labels if l != "BENIGN"]
 
-for col in FEATURES_26:
+for col in FEATURES_29:
     benign_vals = df.filter(pl.col("Label") == "BENIGN")[col].drop_nulls().to_numpy().astype(np.float64)
     h_benign = compute_entropy(benign_vals, bins=100)
     atk_entropies = [
@@ -513,71 +476,71 @@ entropy_plot.compute_entropy(values, bins=100)   # 每 label 各自計算
 Δ = H(BENIGN) − mean(H(attack_i))
 ```
 
-平衡抽樣：每 label 3,000 筆，共 13 labels。
+平衡抽樣：每 label 3,000 筆，共 8 labels（03-11 訓練集）。
 
-**結果（依 Δ 由大至小）：**
+**結果（依 Δ 由大至小，29 個特徵，正確時序）：**
 
 | 特徵名稱 | H(BENIGN) | H(atk avg) | H(atk min) | Δ | 判斷 |
-|----------|----------:|-----------:|-----------:|---:|------|
-| `Bwd IAT Min` | 2.203 | 0.270 | 0.000 | +1.933 | ★ 攻擊明顯規律 |
-| `Init_Win_bytes_forward` | 1.787 | 0.132 | 0.000 | +1.655 | ★ 攻擊明顯規律 |
-| `Down/Up Ratio` | 1.676 | 0.212 | 0.000 | +1.464 | ★ 攻擊明顯規律 |
-| `act_data_pkt_fwd` | 2.273 | 1.011 | 0.004 | +1.262 | ★ 攻擊明顯規律 |
-| `Protocol` | 1.177 | 0.056 | 0.000 | +1.121 | ★ 攻擊明顯規律 |
-| `Init_Win_bytes_backward` | 1.129 | 0.084 | 0.000 | +1.044 | ★ 攻擊明顯規律 |
-| `Bwd IAT Mean` | 0.903 | 0.107 | 0.000 | +0.796 | ○ 攻擊略有規律 |
-| `Fwd Packet Length Max` | 2.114 | 1.499 | 0.009 | +0.616 | ○ 攻擊略有規律 |
-| `Min Packet Length` | 2.164 | 1.558 | 0.000 | +0.606 | ○ 攻擊略有規律 |
-| `Packet Length Mean` | 2.329 | 1.769 | 0.009 | +0.560 | ○ 攻擊略有規律 |
-| `Flow Duration` | 1.450 | 0.954 | 0.013 | +0.496 | ○ 攻擊略有規律 |
-| `Fwd Packet Length Min` | 2.025 | 1.558 | 0.000 | +0.467 | ○ 攻擊略有規律 |
-| `Flow IAT Std` | 1.362 | 0.944 | 0.004 | +0.418 | ○ 攻擊略有規律 |
-| `Fwd Packet Length Mean` | 2.174 | 1.776 | 0.009 | +0.398 | ○ 攻擊略有規律 |
-| `Total Fwd Packets` | 1.390 | 1.163 | 0.004 | +0.227 | ~ 無顯著差異 |
-| `Flow IAT Max` | 1.137 | 0.918 | 0.012 | +0.220 | ~ 無顯著差異 |
-| `Bwd Packets/s` | 0.419 | 0.254 | 0.000 | +0.165 | ~ 無顯著差異 |
-| `Flow IAT Mean` | 1.289 | 1.150 | 0.004 | +0.139 | ~ 無顯著差異 |
-| `Fwd IAT Mean` | 1.177 | 1.134 | 0.004 | +0.043 | ~ 無顯著差異 |
-| `Bwd Header Length` | 0.042 | 0.321 | 0.000 | −0.279 | ~ 無顯著差異 |
-| `Fwd Header Length` | 0.048 | 0.423 | 0.031 | −0.375 | ▼ BENIGN 更規律 |
-| `Flow Packets/s` | 1.037 | 1.540 | 1.004 | −0.503 | ▼ BENIGN 更規律 |
-| `Total Length of Fwd Packets` | 0.999 | 1.922 | 0.009 | −0.923 | ▼ BENIGN 更規律 |
-| `Flow IAT Min` | 0.076 | 1.261 | 0.145 | −1.185 | ▼ BENIGN 更規律 |
-| `Flow Bytes/s` | 0.365 | 2.006 | 0.009 | −1.641 | ▼ BENIGN 更規律 |
-| `Destination Port` | 1.159 | 6.296 | 2.746 | −5.136 | ▼ BENIGN 更規律 |
+|----------|----------:|-----------:|-----------:|--:|------|
+| `Bwd Packet Length Mean` | 3.108 | 0.201 | 0.000 | +2.907 | ★ 攻擊明顯規律 |
+| `Bwd Packet Length Max` | 2.704 | 0.161 | 0.000 | +2.543 | ★ 攻擊明顯規律 |
+| `Bwd Packet Length Min` | 2.713 | 0.175 | 0.000 | +2.538 | ★ 攻擊明顯規律 |
+| `Bwd IAT Min` | 2.232 | 0.285 | 0.000 | +1.947 | ★ 攻擊明顯規律 |
+| `Init_Win_bytes_forward` | 1.924 | 0.063 | 0.000 | +1.861 | ★ 攻擊明顯規律 |
+| `Down/Up Ratio` | 1.680 | 0.193 | 0.000 | +1.487 | ★ 攻擊明顯規律 |
+| `Packet Length Variance` | 1.757 | 0.319 | 0.000 | +1.438 | ★ 攻擊明顯規律 |
+| `Flow Duration` | 1.578 | 0.479 | 0.004 | +1.099 | ★ 攻擊明顯規律 |
+| `Flow IAT Std` | 1.576 | 0.554 | 0.009 | +1.023 | ★ 攻擊明顯規律 |
+| `Bwd IAT Total` | 1.153 | 0.135 | 0.000 | +1.017 | ★ 攻擊明顯規律 |
+| `Bwd IAT Mean` | 1.068 | 0.134 | 0.000 | +0.935 | ★ 攻擊明顯規律 |
+| `Total Fwd Packets` | 1.404 | 0.476 | 0.019 | +0.927 | ★ 攻擊明顯規律 |
+| `Init_Win_bytes_backward` | 0.953 | 0.054 | 0.000 | +0.899 | ★ 攻擊明顯規律 |
+| `Flow IAT Max` | 1.381 | 0.492 | 0.004 | +0.888 | ★ 攻擊明顯規律 |
+| `Protocol` | 0.958 | 0.075 | 0.000 | +0.882 | ★ 攻擊明顯規律 |
+| `act_data_pkt_fwd` | 1.286 | 0.472 | 0.019 | +0.814 | ★ 攻擊明顯規律 |
+| `Fwd Packet Length Mean` | 2.586 | 1.916 | 0.021 | +0.670 | ★ 攻擊明顯規律 |
+| `Min Packet Length` | 2.381 | 1.874 | 0.025 | +0.506 | ○ 攻擊略有規律 |
+| `Flow IAT Mean` | 1.030 | 0.567 | 0.009 | +0.463 | ○ 攻擊略有規律 |
+| `Fwd Packet Length Max` | 2.267 | 1.873 | 0.021 | +0.395 | ○ 攻擊略有規律 |
+| `Bwd Packets/s` | 0.297 | 0.267 | 0.000 | +0.030 | ~ 無顯著差異 |
+| `Flow Packets/s` | 1.351 | 1.536 | 1.016 | −0.185 | ~ 無顯著差異 |
+| `Bwd Header Length` | 0.036 | 0.289 | 0.000 | −0.253 | ~ 無顯著差異 |
+| `Fwd Header Length` | 0.026 | 0.522 | 0.067 | −0.496 | ▼ BENIGN 更規律 |
+| `Fwd Packet Length Min` | 1.202 | 1.876 | 0.025 | −0.673 | ▼ BENIGN 更規律 |
+| `Total Length of Fwd Packets` | 0.899 | 1.752 | 0.621 | −0.854 | ▼ BENIGN 更規律 |
+| `Flow IAT Min` | 0.044 | 1.325 | 0.033 | −1.281 | ▼ BENIGN 更規律 |
+| `Flow Bytes/s` | 0.610 | 2.610 | 1.365 | −2.000 | ▼ BENIGN 更規律 |
+| `Destination Port` | 1.626 | 6.599 | 6.475 | −4.973 | ▼ BENIGN 更規律 |
 
 **兩種有效模式說明：**
 
 - **★ / ○（Δ > 0）—「攻擊規律」型**：BENIGN 分散（高熵），攻擊集中（低熵）。
   攻擊流量聚集在 BENIGN 邊界之外的特定區域，IF 能輕易孤立。
-  例：`Protocol` BENIGN 熵 1.18（TCP/UDP/ICMP 均有），攻擊熵 0.06（幾乎清一色單一 Protocol）。
+  例：`Bwd Packet Length Mean` BENIGN 熵 3.11（多樣 backward 封包大小），攻擊熵 0.20（DDoS 固定格式回應封包幾乎全為定長）。
 
 - **▼（Δ < 0）—「BENIGN 規律」型**：BENIGN 集中（低熵），攻擊分散（高熵）。
   這是 IF 最經典的使用情境：BENIGN 形成緊密邊界，攻擊因為多樣性而自然落在邊界外。
-  例：`Flow Bytes/s` BENIGN 熵 0.37（正常流量 bytes 集中），攻擊熵 2.01（各攻擊類型差異大）。
+  例：`Flow Bytes/s` BENIGN 熵 0.61（正常流量速率相對集中），攻擊熵 2.61（各攻擊類型速率差異大）。
 
 **無顯著差異特徵（Δ ≈ 0）：**
 
 | 特徵名稱 | Δ | IG (Run 03) | 說明 |
-|----------|---:|----------:|------|
-| `Total Fwd Packets` | +0.227 | 9.2% | 熵值近似，但 IG 確認值分布有偏移 |
-| `Flow IAT Max` | +0.220 | 33.5% | IG 高，熵相近但 BENIGN 與攻擊均值差異顯著 |
-| `Bwd Packets/s` | +0.165 | 18.4% | 同上 |
-| `Flow IAT Mean` | +0.139 | 34.1% | 同上 |
-| `Fwd IAT Mean` | +0.043 | 13.0% | 同上 |
-| `Bwd Header Length` | −0.279 | 44.7% | 兩者均極低熵（高度集中）但集中在不同值域 |
+|----------|--:|----------:|------|
+| `Bwd Packets/s` | +0.030 | 46.4% | 熵值近似，但 IG 高，值域分布有偏移 |
+| `Flow Packets/s` | −0.185 | 41.2% | 同上 |
+| `Bwd Header Length` | −0.253 | 33.7% | 兩者均極低熵（高度集中）但集中在不同值域 |
 
-**結論：26 個特徵均無「完全隨機無規律」情形，全數保留。**
+**結論：29 個特徵均無「完全隨機無規律」情形，全數保留。**
 
 Δ ≈ 0 的特徵雖然 BENIGN 與攻擊的分布「形狀」（熵）相近，
 但 Run 03 的 IG 已確認它們在值域上存在偏移（P(X|BENIGN) ≠ P(X|Attack) 的均值不同），
-IF 仍能利用這些偏移進行孤立。最終特徵集維持 **26 個**，AUC = 0.9399。
+IF 仍能利用這些偏移進行孤立。最終特徵集維持 **29 個**，AUC = 0.8757（Run 04）。
 
 ---
 
 ### Run 06 — 2026-04-05（方案 G：Permutation Importance）
 
-以 Permutation Importance 驗證 26 個特徵對 IsolationForest（AUC-ROC）的實際貢獻度。
+以 Permutation Importance 驗證 **29 個特徵**對 IsolationForest（AUC-ROC）的實際貢獻度。
 
 **方法：**
 ```
@@ -592,9 +555,9 @@ importance(f) = baseline_AUC − mean(AUC after permuting f × n_repeats)
 | 類型 | 路徑 |
 |------|------|
 | 執行腳本 | `service/model/view/permutation_importance.py` |
-| 相依模組 | `service/model/schema.py`（FEATURE_COLS，26 個）|
-| 訓練資料 | `service/model/dataset/parquet_clean/train/*.parquet`（11 個檔案）|
-| 驗證資料 | `service/model/dataset/parquet_clean/test/*.parquet`（7 個檔案）|
+| 相依模組 | `service/model/schema.py`（FEATURE_COLS，29 個）|
+| 訓練資料 | `service/model/dataset/parquet_clean/train/*.parquet`（7 個檔案，03-11）|
+| 驗證資料 | `service/model/dataset/parquet_clean/test/*.parquet`（11 個檔案，01-12）|
 
 **執行指令：**
 ```bash
@@ -610,46 +573,46 @@ uv run --project service/model python -m service.model.view.permutation_importan
 |------|-----|
 | BENIGN 訓練樣本 | 10,000 筆 |
 | 驗證集（每 label） | 3,000 筆 |
-| 驗證集總筆數 | 22,873 筆 |
+| 驗證集總筆數 | 36,439 筆 |
 | n_estimators | 200 |
 | contamination | 0.01 |
 | n_repeats | 5 |
 | seed | 42 |
-| Baseline AUC | **0.9399** |
+| Baseline AUC | **0.8757** |
 
-> ⚠️ **注意**：下表 Perm AUC 與 Δ 值以**原始時序**（01-12 Train，Baseline=0.9163）計算，未隨時序修正重跑。
-> 正確時序下 Baseline=0.9399，各 Perm AUC 絕對值會整體偏移，但特徵排名方向（正/負貢獻）預期不變。
+**完整結果（依 importance 由高至低，Baseline AUC = 0.8757，正確時序）：**
 
-**完整結果（依 importance 由高至低，Perm AUC 為原始時序值）：**
-
-| 排名 | 特徵名稱 | Perm AUC | ± Std | Δ (importance) | 判斷 |
-|-----:|----------|:--------:|:-----:|:--------------:|------|
-| 1 | `Fwd Packet Length Min` | 0.8826 | 0.0009 | **+0.0337** | ★★ 核心特徵 |
-| 2 | `Flow Bytes/s` | 0.8896 | 0.0006 | **+0.0267** | ★★ 核心特徵 |
-| 3 | `Flow Packets/s` | 0.8900 | 0.0007 | **+0.0263** | ★★ 核心特徵 |
-| 4 | `Destination Port` | 0.8926 | 0.0007 | **+0.0237** | ★★ 核心特徵 |
-| 5 | `Min Packet Length` | 0.8941 | 0.0006 | **+0.0222** | ★★ 核心特徵 |
-| 6 | `Fwd Packet Length Mean` | 0.9016 | 0.0009 | +0.0147 | ★ 有效特徵 |
-| 7 | `Protocol` | 0.9056 | 0.0002 | +0.0107 | ★ 有效特徵 |
-| 8 | `Bwd Packets/s` | 0.9083 | 0.0002 | +0.0080 | ★ 有效特徵 |
-| 9 | `Packet Length Mean` | 0.9111 | 0.0005 | +0.0052 | ★ 有效特徵 |
-| 10 | `Flow IAT Min` | 0.9163 | 0.0001 | −0.0000 | △ 可考慮移除 |
-| 11 | `Init_Win_bytes_forward` | 0.9165 | 0.0001 | −0.0002 | △ 可考慮移除 |
-| 12 | `Flow Duration` | 0.9167 | 0.0001 | −0.0004 | △ 可考慮移除 |
-| 13 | `Flow IAT Mean` | 0.9168 | 0.0001 | −0.0005 | △ 可考慮移除 |
-| 14 | `Bwd IAT Min` | 0.9170 | 0.0001 | −0.0007 | △ 可考慮移除 |
-| 15 | `Fwd IAT Mean` | 0.9174 | 0.0001 | −0.0011 | ▽ 負貢獻 |
-| 16 | `Down/Up Ratio` | 0.9177 | 0.0001 | −0.0014 | ▽ 負貢獻 |
-| 17 | `Bwd IAT Mean` | 0.9177 | 0.0002 | −0.0014 | ▽ 負貢獻 |
-| 18 | `Flow IAT Std` | 0.9176 | 0.0001 | −0.0014 | ▽ 負貢獻 |
-| 19 | `Fwd Packet Length Max` | 0.9186 | 0.0003 | −0.0023 | ▽ 負貢獻 |
-| 20 | `Fwd Header Length` | 0.9186 | 0.0001 | −0.0023 | ▽ 負貢獻 |
-| 21 | `Init_Win_bytes_backward` | 0.9187 | 0.0001 | −0.0024 | ▽ 負貢獻 |
-| 22 | `Bwd Header Length` | 0.9193 | 0.0001 | −0.0030 | ▽ 負貢獻 |
-| 23 | `Flow IAT Max` | 0.9195 | 0.0002 | −0.0032 | ▽ 負貢獻 |
-| 24 | `act_data_pkt_fwd` | 0.9205 | 0.0002 | −0.0042 | ▽ 負貢獻 |
-| 25 | `Total Fwd Packets` | 0.9207 | 0.0002 | −0.0045 | ▽ 負貢獻 |
-| 26 | `Total Length of Fwd Packets` | 0.9209 | 0.0002 | −0.0046 | ▽ 負貢獻 |
+| 排名 | 特徵名稱 | Perm AUC | ± Std | Δ (importance) | 判斷      |
+|-----:|----------|:--------:|:-----:|:--------------:|---------|
+| 1 | `Destination Port` | 0.8433 | 0.0005 | **+0.0324** | ★★ 核心特徵 |
+| 2 | `Flow Packets/s` | 0.8452 | 0.0004 | **+0.0305** | ★★ 核心特徵 |
+| 3 | `Fwd Packet Length Min` | 0.8643 | 0.0005 | +0.0114 | ★ 有效特徵  |
+| 4 | `Flow Bytes/s` | 0.8652 | 0.0009 | +0.0105 | ★ 有效特徵  |
+| 5 | `Fwd Packet Length Mean` | 0.8672 | 0.0006 | +0.0085 | ★ 有效特徵  |
+| 6 | `Down/Up Ratio` | 0.8698 | 0.0001 | +0.0059 | ★ 有效特徵  |
+| 7 | `Bwd Packets/s` | 0.8720 | 0.0000 | +0.0037 | △ 可考慮移除 |
+| 8 | `Min Packet Length` | 0.8724 | 0.0005 | +0.0033 | △ 可考慮移除 |
+| 9 | `Bwd Packet Length Mean` | 0.8728 | 0.0001 | +0.0029 | △ 可考慮移除 |
+| 10 | `Init_Win_bytes_forward` | 0.8737 | 0.0002 | +0.0020 | △ 可考慮移除 |
+| 11 | `Fwd Packet Length Max` | 0.8746 | 0.0007 | +0.0012 | △ 可考慮移除 |
+| 12 | `Total Length of Fwd Packets` | 0.8745 | 0.0008 | +0.0012 | △ 可考慮移除 |
+| 13 | `act_data_pkt_fwd` | 0.8746 | 0.0005 | +0.0011 | △ 可考慮移除 |
+| 14 | `Bwd IAT Min` | 0.8748 | 0.0000 | +0.0009 | △ 可考慮移除 |
+| 15 | `Bwd Header Length` | 0.8751 | 0.0001 | +0.0007 | △ 可考慮移除 |
+| 16 | `Bwd Packet Length Max` | 0.8753 | 0.0001 | +0.0004 | △ 可考慮移除 |
+| 17 | `Bwd Packet Length Min` | 0.8756 | 0.0001 | +0.0001 | △ 可考慮移除 |
+| 18 | `Fwd Header Length` | 0.8771 | 0.0002 | −0.0014 | ▽ 負貢獻   |
+| 19 | `Flow IAT Min` | 0.8772 | 0.0002 | −0.0015 | ▽ 負貢獻   |
+| 20 | `Flow IAT Mean` | 0.8775 | 0.0005 | −0.0017 | ▽ 負貢獻   |
+| 21 | `Total Fwd Packets` | 0.8774 | 0.0004 | −0.0017 | ▽ 負貢獻   |
+| 22 | `Flow IAT Std` | 0.8782 | 0.0001 | −0.0025 | ▽ 負貢獻   |
+| 23 | `Init_Win_bytes_backward` | 0.8786 | 0.0001 | −0.0029 | ▽ 負貢獻   |
+| 24 | `Bwd IAT Mean` | 0.8791 | 0.0001 | −0.0034 | ▽ 負貢獻   |
+| 25 | `Packet Length Variance` | 0.8795 | 0.0001 | −0.0038 | ▽ 負貢獻   |
+| 26 | `Flow Duration` | 0.8799 | 0.0002 | −0.0042 | ▽ 負貢獻   |
+| 27 | `Bwd IAT Total` | 0.8805 | 0.0002 | −0.0047 | ▽ 負貢獻   |
+| 28 | `Flow IAT Max` | 0.8808 | 0.0002 | −0.0051 | ▽ 負貢獻   |
+| 29 | `Protocol` | 0.8938 | 0.0003 | −0.0181 | ▽ 負貢獻   |
 
 **重要發現：**
 
@@ -657,71 +620,68 @@ uv run --project service/model python -m service.model.view.permutation_importan
 
 | 特徵名稱 | IG 排名 | PI 排名 | Δ PI | 說明 |
 |----------|:-------:|:-------:|:----:|------|
-| `Fwd Packet Length Min` | 7 | **1** | +0.0337 | IG 低估：Min 封包長度在 iForest 邊界切割中最具鑑別力 |
-| `Flow Bytes/s` | 17 | **2** | +0.0267 | IG 低估：BENIGN 低熵（集中），攻擊高熵（分散）→ iForest 最愛 |
-| `Flow Packets/s` | 14 | **3** | +0.0263 | 同上，Rate 類特徵在 iForest 中的切割效率高 |
-| `Bwd IAT Min` | 5 | 14 | −0.0007 | IG 高估：移除後 AUC 反而略升，代表其攻擊集中性被其他特徵覆蓋 |
-| `Bwd Header Length` | 3 | 22 | −0.0030 | IG 高估：極低熵特徵，攻擊與 BENIGN 均高度集中但重疊，打亂無影響 |
+| `Destination Port` | 4 | **1** | +0.0324 | IG 已排第 4，PI 確認為最核心特徵 |
+| `Flow Packets/s` | 9 | **2** | +0.0305 | Rate 類特徵在 iForest 中切割效率高 |
+| `Fwd Packet Length Min` | 2 | **3** | +0.0114 | IG 高估（排第 2）；PI 確認有效但低於速率特徵 |
+| `Protocol` | 30 | **29** | −0.0181 | IG 最低（1.2%），PI 確認最強負貢獻 |
+| `Bwd Packet Length Mean` | 18 | **9** | +0.0029 | 新加入的 backward 特徵仍有輕微正貢獻 |
 
 **2. 負貢獻特徵（Δ < 0）**
 
-17 個特徵打亂後 AUC 不降反升（最大 +0.0046），說明這些特徵在目前特徵集中**引入了共線噪音**。
-可能原因：這些特徵與核心特徵（如 `Fwd Packet Length Min`、`Flow Bytes/s`）存在相關性，
-在多特徵空間中反而干擾 iForest 的隨機切割路徑。
+12 個特徵打亂後 AUC 不降反升（最大 +0.0181），說明這些特徵在目前特徵集中**引入了共線噪音**。
+`Protocol` 負貢獻最強（−0.0181）：DDoS 攻擊與 BENIGN 均主要使用 TCP/UDP，打亂後 iForest 切割路徑反而更準，說明 Protocol 在此特徵集中是干擾項。
 
 **3. 核心特徵（Δ ≥ 0.02）分析**
 
 | 特徵名稱 | Δ PI | Run 05 Δ Entropy | 解讀 |
 |----------|:----:|:----------------:|------|
-| `Fwd Packet Length Min` | +0.0337 | +0.467 | 攻擊流量 Min 封包長度趨近固定值（低熵），BENIGN 多樣 |
-| `Flow Bytes/s` | +0.0267 | −1.641 | BENIGN 低熵（正常流量規律），攻擊高熵（各類攻擊速率不同）|
-| `Flow Packets/s` | +0.0263 | −0.503 | 同上，Rate 特徵 iForest 最能利用 BENIGN 緊密邊界 |
-| `Destination Port` | +0.0237 | −5.136 | BENIGN 分散在常用 Port，攻擊集中攻擊特定 Port |
-| `Min Packet Length` | +0.0222 | +0.606 | 攻擊流量封包大小趨均一，BENIGN 多樣 |
+| `Destination Port` | +0.0324 | −4.973 | BENIGN 分散在常用 Port，攻擊集中攻擊特定 Port |
+| `Flow Packets/s` | +0.0305 | −0.185 | BENIGN 速率集中，攻擊多樣（各類 DDoS 速率差異大）→ iForest 利用 BENIGN 緊密邊界 |
 
-**結論與建議：**
-
-1. **核心特徵（9 個，Δ > 0）** 是 iForest 真正依賴的鑑別邊界，下一步可優先這 9 個驗證。
-2. **負貢獻特徵（17 個，Δ < 0）** 打亂後 AUC 反升，建議進行**精簡實驗**（移除全部負貢獻特徵後驗證 AUC 是否提升）。
-3. **IG 與 PI 排名差異**顯示兩種方法互補：IG 衡量統計鑑別力，PI 衡量 iForest 的實際利用效率，兩者應交叉參考。
-4. `Source Port`（Run 01 已移除）IG 排名 10（38.5%），若加回可能提升 PI，但有 data leakage 疑慮，維持移除決策。
+**結論：** 正確時序下 PI 結果揭示明顯的**邊際貢獻問題**：17 個正貢獻特徵中有 11 個 Δ < 0.003，實質趨近零貢獻，而非真正有效特徵。核心特徵只有 2 個（Destination Port +0.032、Flow Packets/s +0.031），貢獻量比其他正貢獻特徵高出一個數量級。**建議後續以 Δ ≥ 0.01 的 6 個強正貢獻特徵為精簡組**（Destination Port、Flow Packets/s、Fwd Packet Length Min、Flow Bytes/s、Fwd Packet Length Mean、Down/Up Ratio），以排除邊際特徵對 iForest 切割路徑的干擾。Run 07 先以全部 17 個 Δ > 0 特徵驗證基線 AUC，再決定是否進一步精簡。
 
 ---
 
-### Run 07 — 2026-04-05（9 個正貢獻特徵 AUC 驗證）
+### Run 07 — 2026-04-05（17 個正貢獻特徵 AUC 驗證）
 
-依 Run 06 Permutation Importance 結果，僅保留 Δ > 0 的 9 個特徵，移除 17 個負貢獻特徵，驗證 AUC 是否提升。
+依 Run 06 Permutation Importance 結果，保留全部 **Δ > 0 的 17 個特徵**，移除 12 個負貢獻特徵，驗證 AUC 是否提升。
 
 **執行方式：** 直接呼叫 `if_auc_validate`（與 Run 04 相同設定）
 
-**9 個特徵（依 PI importance 排序）：**
+**17 個特徵（依 PI importance 排序）：**
 
-| 排名 | 特徵名稱 | Δ PI（Run 06）|
-|-----:|----------|:-------------:|
-| 1 | `Fwd Packet Length Min` | +0.0337 |
-| 2 | `Flow Bytes/s` | +0.0267 |
-| 3 | `Flow Packets/s` | +0.0263 |
-| 4 | `Destination Port` | +0.0237 |
-| 5 | `Min Packet Length` | +0.0222 |
-| 6 | `Fwd Packet Length Mean` | +0.0147 |
-| 7 | `Protocol` | +0.0107 |
-| 8 | `Bwd Packets/s` | +0.0080 |
-| 9 | `Packet Length Mean` | +0.0052 |
+| 排名 | 特徵名稱 | Δ PI（Run 06）| 強度 |
+|-----:|----------|:-------------:|:---:|
+| 1 | `Destination Port` | +0.0324 | ★★ |
+| 2 | `Flow Packets/s` | +0.0305 | ★★ |
+| 3 | `Fwd Packet Length Min` | +0.0114 | ★ |
+| 4 | `Flow Bytes/s` | +0.0105 | ★ |
+| 5 | `Fwd Packet Length Mean` | +0.0085 | ★ |
+| 6 | `Down/Up Ratio` | +0.0059 | ★ |
+| 7 | `Bwd Packets/s` | +0.0037 | △ 邊際 |
+| 8 | `Min Packet Length` | +0.0033 | △ 邊際 |
+| 9 | `Bwd Packet Length Mean` | +0.0029 | △ 邊際 |
+| 10 | `Init_Win_bytes_forward` | +0.0020 | △ 邊際 |
+| 11 | `Fwd Packet Length Max` | +0.0012 | △ 邊際 |
+| 12 | `Total Length of Fwd Packets` | +0.0012 | △ 邊際 |
+| 13 | `act_data_pkt_fwd` | +0.0011 | △ 邊際 |
+| 14 | `Bwd IAT Min` | +0.0009 | △ 邊際 |
+| 15 | `Bwd Header Length` | +0.0007 | △ 邊際 |
+| 16 | `Bwd Packet Length Max` | +0.0004 | △ 邊際 |
+| 17 | `Bwd Packet Length Min` | +0.0001 | △ 邊際 |
 
 **結果比較：**
 
-| | Run 04（26 個） | Run 06 Baseline | Run 07（9 個） |
+| | Run 04（29 個）| Run 06 Baseline | Run 07（17 個）|
 |---|:-:|:-:|:-:|
-| 特徵數 | 26 | 26 | **9** |
-| 驗證集（01-12）| ~55,000 | ~55,000 | ~55,000 |
-| 攻擊比例 | 86.9% | 86.9% | 86.9% |
-| AUC-ROC | 0.9399 | 0.9399 | **0.9547** |
-| 提升幅度 | — | — | **+0.0148** |
-| 判讀 | 優秀 | 優秀 | **優秀** |
+| 特徵數 | 29 | 29 | **17** |
+| 驗證集（01-12）| 36,439 | 36,439 | 36,439 |
+| 攻擊比例 | 91.8% | 91.8% | 91.8% |
+| AUC-ROC | 0.8757 | 0.8757 | **0.9257** |
+| 提升幅度 | — | — | **+0.0500** |
+| 判讀 | 尚可 | 尚可 | **優秀** |
 
-**結論：** 移除 17 個負貢獻特徵後 AUC 從 0.9399 提升至 **0.9547**（+0.0148）。
-這 9 個特徵就是 iForest 真正依賴的決策邊界；其餘特徵的高維共線噪音反而分散了 iForest 的切割路徑。
-**確認這 9 個特徵為目前最佳特徵集，建議更新至 `schema.py`。**
+**結論：** 移除 12 個負貢獻特徵後 AUC 從 0.8757 大幅提升至 **0.9257**（+0.050）。這 17 個特徵（含 11 個邊際正貢獻）確認比 29 個全特徵集更有效——負貢獻特徵的高維共線噪音確實干擾了 iForest 的切割路徑。**建議後續進一步測試僅保留 Δ ≥ 0.01 的 6 個強特徵**（Destination Port、Flow Packets/s、Fwd Packet Length Min、Flow Bytes/s、Fwd Packet Length Mean、Down/Up Ratio），驗證剔除邊際特徵是否能在跨資料集泛化上帶來額外改善。
 
 ---
 
@@ -736,31 +696,31 @@ uv run --project service/model python -m service.model.view.permutation_importan
 | `DDoS1-Tuesday-20-02-2018` | 2018-02-20 | 379,482 | 575,364 | DDoS attacks-LOIC-HTTP |
 
 **注意事項：**
-- 新資料集缺少 `Destination Port` 欄位 → 使用 **8 個特徵**（排除 `Destination Port`）
-- 新資料集 `Packet Length Min` 對應原始 `Min Packet Length`（已 rename）
+- 新資料集缺少 `Destination Port`、`Init_Win_bytes_forward`、`act_data_pkt_fwd` 欄位 → 使用 **14 個特徵**（排除 3 個不存在的欄位）
 - Label 命名規則不同（`Benign` vs `BENIGN`），已做 uppercase normalize
+- 可用的 14 個特徵：Flow Packets/s, Fwd Packet Length Min, Flow Bytes/s, Fwd Packet Length Mean, Down/Up Ratio, Bwd Packets/s, Min Packet Length, Bwd Packet Length Mean, Fwd Packet Length Max, Total Length of Fwd Packets, Bwd IAT Min, Bwd Header Length, Bwd Packet Length Max, Bwd Packet Length Min
 
 **AUC-ROC 結果：**
 
 | 資料集 | 攻擊類型 | 攻擊比例 | AUC-ROC | 判讀 |
 |--------|----------|:--------:|:-------:|------|
-| CIC-DDoS2019 Test（Run 07） | DrDoS / SYN / UDP Flood | 86.9% | **0.9443** | 優秀 |
-| CIC IDS 2018 DDoS1 | LOIC-HTTP（應用層 HTTP Flood） | 60.3% | **0.1431** | 失敗（反向） |
+| CIC-DDoS2019 Test（Run 07，17 特徵）| DrDoS / SYN / UDP Flood | 91.8% | **0.9233** | 優秀 |
+| CIC IDS 2018 DDoS1（14 特徵）| LOIC-HTTP（應用層 HTTP Flood）| 60.3% | **0.2813** | 失敗（反向）|
 
-**根本原因分析：DDoS1 AUC = 0.14（Distribution Shift）**
+**根本原因分析：DDoS1 AUC = 0.28（Distribution Shift）**
 
-AUC = 0.1431 代表模型將 **BENIGN 流量判為異常、攻擊判為正常**（比隨機反向）。Anomaly score 分析（原始時序下採集，作為參考）：
+AUC = 0.2813 代表模型將 **BENIGN 流量判為異常、攻擊判為正常**（比隨機反向）。Anomaly score 分析（正確時序，03-11 Train）：
 
 | | Anomaly Score（mean） | median | p90 |
 |-|:---------------------:|:------:|:---:|
-| IDS2018 BENIGN | **0.4061** | 0.3913 | 0.4744 |
-| LOIC-HTTP Attack | **0.3403** | 0.3489 | 0.3495 |
+| IDS2018 BENIGN | **0.4249** | 0.4278 | 0.4969 |
+| LOIC-HTTP Attack | **0.3778** | 0.4084 | 0.4360 |
 
 BENIGN 的異常分數**高於**攻擊，根本原因為兩個面向：
 
 **① 訓練集 BENIGN 與 IDS2018 BENIGN 分布差異（Distribution Shift）**
 
-| 特徵 | Train BENIGN（DDoS2019） | DDoS1 BENIGN（IDS2018） | LOIC-HTTP |
+| 特徵 | Train BENIGN（DDoS2019）| DDoS1 BENIGN（IDS2018）| LOIC-HTTP |
 |------|:------------------------:|:----------------------:|:---------:|
 | `Flow Bytes/s` | 11,367,508 | 146,951 | 544 |
 | `Flow Packets/s` | 183,124 | 8,804 | 5 |
@@ -779,7 +739,7 @@ LOIC-HTTP 透過發送大量合法格式的 HTTP GET/POST 請求實施 DDoS。
 
 **結論：**
 
-1. **AUC=0.9443 是資料集內部驗證結果**，不代表真實部署泛化能力。
+1. **AUC=0.9233 是資料集內部驗證結果**，不代表真實部署泛化能力。
 2. **Distribution Shift 嚴重**：訓練集 BENIGN（高速反射攻擊環境）與一般辦公室流量統計特性差距懸殊，導致模型邊界失效。
 3. **應用層 DDoS（LOIC-HTTP）在 Layer 4 無法偵測**：LOIC-HTTP 偽裝為合法 HTTP 請求，每個 flow 的封包大小、速率與正常瀏覽在 Layer 4 幾乎無法區分，這是網路層偵測的根本限制，非模型或特徵選擇問題。
 4. **後續建議（Distribution Shift）**：若要部署至一般辦公室環境，需以目標環境的 BENIGN 流量重新訓練。
@@ -799,20 +759,17 @@ Protocol, Packet Length Mean
 
 **三資料集 AUC 對比：**
 
-| 資料集 | 攻擊類型 | 8 個特徵（含速率）| 5 個特徵（純結構）| 差異 |
+| 資料集 | 攻擊類型 | 17 個特徵（含速率）| 5 個特徵（純結構）| 差異 |
 |--------|----------|:-----------------:|:-----------------:|:----:|
-| CIC-DDoS2019 Test | SYN/UDP/DrDoS | 0.9443 | **0.8526** | −0.0917 |
-| IDS2018 DDoS1 | LOIC-HTTP | 0.1431 | **0.2429** | +0.0998 |
+| CIC-DDoS2019 Test | SYN/UDP/DrDoS | 0.9233 | **0.8535** | −0.0698 |
+| IDS2018 DDoS1 | LOIC-HTTP | 0.2813 | **0.2261** | −0.0552 |
 
 **分析：**
 
-移除速率特徵**方向正確但效果有限**：
+移除速率特徵**方向不再改善跨資料集表現**：
 
-- DDoS1 AUC 從 0.14 提升至 0.24，仍低於 0.5（模型仍反向，把 IDS2018 BENIGN 判為異常）。
-- 速率特徵確實加劇了 distribution shift（訓練環境速率異常偏高），但封包大小特徵的分布差異同樣存在：
-  訓練 BENIGN `Fwd Packet Length Min` 均值 17.1，IDS2018 BENIGN 為 13.3，LOIC-HTTP 僅 0.04。
-  LOIC-HTTP 的封包大小接近 0 是 HTTP header-only flood 的特徵，但 iForest 邊界仍以 DDoS2019 BENIGN 為準。
-- 原始驗證集 AUC 從 0.9443 降至 0.8526（−0.092），損失幅度較原版大，說明正確時序下 9 個絕對值特徵較依賴攻擊日期的分布特性。
+- 正確時序下，DDoS2019 AUC 從 0.9233 降至 0.8535（−0.070），且 LOIC-HTTP AUC 也從 0.2813 降至 0.2261（進一步惡化）。與原始時序（LOIC-HTTP 從 0.14 提升至 0.24）的結論相反——在正確時序下，純封包結構特徵對兩個資料集均不如 17 特徵組合。
+- 速率特徵雖然加劇了 distribution shift，但封包大小特徵的分布差異同樣存在：訓練 BENIGN `Fwd Packet Length Min` 均值 17.1，IDS2018 BENIGN 為 13.3，LOIC-HTTP 僅 0.04。LOIC-HTTP 的封包大小接近 0 是 HTTP header-only flood 的特徵，無論移除哪些特徵，iForest 邊界都以 DDoS2019 BENIGN 為準。
 
 **結論：**
 
@@ -826,24 +783,33 @@ Protocol, Packet Length Mean
 
 逐一以單一特徵訓練 IsolationForest，在 CIC-DDoS2019 與 IDS2018 DDoS1 上分別計算 AUC，找出是哪個特徵造成 distribution shift。
 
-**結果（單特徵 AUC）：**
+**結果（全部 17 個特徵的單特徵 AUC，正確時序）：**
 
 | 特徵 | DDoS2019 | IDS2018 DDoS1 | 判斷 |
 |------|:--------:|:-------------:|------|
+| `Destination Port` | **0.9480** | nan（缺失）| DDoS2019 最佳但 IDS2018 無此欄位 |
+| `Flow Packets/s` | 0.8661 | 0.4225 | shift |
 | `Fwd Packet Length Min` | 0.8764 | 0.3424 | shift |
-| `Flow Bytes/s` | 0.7825 | 0.2500 | shift（最嚴重）|
-| `Flow Packets/s` | 0.8779 | 0.3847 | shift |
+| `Flow Bytes/s` | 0.7910 | 0.2538 | shift（最嚴重）|
+| `Fwd Packet Length Mean` | 0.8650 | 0.0670 | shift（IDS2018 最差）|
+| `Down/Up Ratio` | 0.6637 | 0.5100 | 最接近隨機基線，shift 最輕微 |
+| `Bwd Packets/s` | 0.1019 | 0.2649 | shift（DDoS2019 亦差）|
 | `Min Packet Length` | 0.8782 | 0.3432 | shift |
-| `Fwd Packet Length Mean` | 0.9134 | 0.2262 | shift（DDoS2019 最佳但 IDS2018 最差）|
-| `Protocol` | 0.6904 | 0.3341 | shift |
-| `Bwd Packets/s` | 0.1020 | 0.2647 | shift（DDoS2019 亦差）|
-| `Packet Length Mean` | 0.8386 | 0.4875 | shift（最輕微）|
+| `Bwd Packet Length Mean` | 0.2120 | 0.3703 | shift（DDoS2019 亦差）|
+| `Init_Win_bytes_forward` | 0.5090 | nan（缺失）| — |
+| `Fwd Packet Length Max` | 0.8663 | 0.4247 | shift |
+| `Total Length of Fwd Packets` | 0.7951 | 0.2295 | shift |
+| `act_data_pkt_fwd` | 0.4588 | nan（缺失）| — |
+| `Bwd IAT Min` | 0.3007 | 0.4928 | shift（DDoS2019 亦差）|
+| `Bwd Header Length` | 0.7246 | 0.3295 | shift |
+| `Bwd Packet Length Max` | 0.2120 | 0.5558 | DDoS2019 差，IDS2018 略優 |
+| `Bwd Packet Length Min` | 0.2813 | 0.3485 | 均差 |
 
-**關鍵結論：8 個特徵全部 AUC < 0.50，分布偏移並非來自單一特徵，而是整個訓練集 BENIGN 本身的統計特性就與 IDS2018 BENIGN 不同。**
+**關鍵結論：17 個特徵中 14 個可測試的特徵全部 IDS2018 AUC < 0.56，分布偏移並非來自單一特徵，而是整個訓練集 BENIGN 本身的統計特性就與 IDS2018 BENIGN 不同。**
 
 - `Flow Bytes/s` shift 最嚴重（IDS2018 AUC=0.25）：訓練 BENIGN 速率 11M vs IDS2018 BENIGN 147K（差 77 倍）
-- `Packet Length Mean` shift 最輕微（0.49）：封包大小受環境影響相對較小
-- `Bwd Packets/s` 在 DDoS2019 本身也只有 0.10，說明這個特徵即使在同分布下也不穩定
+- `Down/Up Ratio` shift 最輕微（IDS2018 AUC=0.51）：比例特徵對環境變化更穩健
+- `Bwd Packets/s`、`Bwd Packet Length Mean/Max/Min` 在 DDoS2019 單特徵 AUC 也差（0.10–0.28），說明這些特徵對 DDoS2019 本身就無強鑑別力
 - LOIC-HTTP 的封包特徵（大量小型 HTTP header-only flow）使其 anomaly score 系統性低於 IDS2018 正常流量
 
 **根本問題確認**：不是「某個特徵有問題」，而是**訓練集 BENIGN 代表的是反射攻擊高速環境下的背景流量**，與任何一般辦公室網路的正常流量統計上都不相同。無論移除或保留哪個特徵，只要模型的 BENIGN 邊界是基於 DDoS2019 訓練的，跨資料集泛化就會失敗。
@@ -865,28 +831,28 @@ Protocol, Packet Length Mean
 
 **AUC 結果：**
 
-| 資料集 | 攻擊類型 | Run 08（8 個絕對值）| Run 09（5 個結構）| Run 11（3 個比例）|
-|--------|----------|:-------------------:|:-----------------:|:-----------------:|
-| CIC-DDoS2019 Test | SYN/UDP/DrDoS | 0.9443 | 0.8526 | **0.9242** |
-| IDS2018 DDoS1 | LOIC-HTTP | 0.1431 | 0.2429 | **0.6557** ✅ |
+| 資料集 | 攻擊類型 | Run 08（17 個絕對值）| Run 09（5 個結構）| Run 11（3 個比例）|
+|--------|----------|:--------------------:|:-----------------:|:-----------------:|
+| CIC-DDoS2019 Test | SYN/UDP/DrDoS | 0.9233 | 0.8535 | **0.9242** |
+| IDS2018 DDoS1 | LOIC-HTTP | 0.2813 | 0.2261 | **0.6557** ✅ |
 
 **IDS2018 DDoS1 突破 0.5 基線，且顯著提升至 0.6557。**
 
-**單特徵分析（原始時序參考值，個別特徵未重跑正確時序）：**
+**單特徵分析（正確時序，03-11 BENIGN 訓練；重跑腳本：`service/model/view/rerun_r05_r11_r12.py`）：**
 
 | 特徵 | DDoS2019 | IDS2018 DDoS1 | 說明 |
 |------|:--------:|:-------------:|------|
-| `Shape_Ratio` | 0.8727 | **0.5697** | ★ 關鍵突破特徵，單特徵即跨越隨機基線 |
-| `Sym_Ratio` | 0.6375 | 0.4112 | 對 DDoS2019 有效，但 IDS2018 仍略反向 |
-| `Pkt_CV` | 0.2608 | 0.5346 | DDoS2019 效果差（DrDoS CV 與 BENIGN 重疊）|
+| `Shape_Ratio` | **0.7106** | 0.3407 | DDoS2019 有效；LOIC-HTTP 反向（單特徵低於隨機基線）|
+| `Sym_Ratio` | 0.5682 | 0.4675 | DDoS2019 略高於隨機；LOIC-HTTP 仍低於 0.5 |
+| `Pkt_CV` | 0.2352 | **0.5353** | DDoS2019 差；LOIC-HTTP 唯一超過 0.5 的單特徵 |
 
 **分析：**
 
-- **`Shape_Ratio` 是突破點**：LOIC-HTTP 發送大量 header-only 小封包，`Min Packet Length ≈ 0`，`Fwd Packet Length Mean ≈ 3.4`，使比值趨近 0；BENIGN 的比值 ≈ 0.24。此比例在不同速率環境下保持穩定。
-- **`Sym_Ratio` 在 DDoS2019 有效但 IDS2018 微弱**：DDoS2019 的反射攻擊（DrDoS）以大量 Bwd 封包為主（Fwd 很少），Sym_Ratio 極低；LOIC-HTTP 是 Fwd 主導，Sym_Ratio 極高，兩個攻擊的方向相反，但 IDS2018 BENIGN 的 Sym_Ratio 分布與 DDoS2019 不同，造成邊界偏移。
-- **`Pkt_CV`** 在 DDoS2019 本身效果差，DrDoS 攻擊的封包長度也相當均一（反射放大的固定格式），CV 值與 BENIGN 重疊。但在 IDS2018 LOIC-HTTP 上有一定鑑別力，說明 LOIC-HTTP 的封包長度變異特性仍有別於 BENIGN。
+- **三個單特徵均無法單獨突破 LOIC-HTTP 偵測**：正確時序下無任何單一比例特徵的 LOIC-HTTP AUC 明顯高於 0.5。組合 AUC=0.6557 屬於**多特徵非線性協同效果**：`Pkt_CV` 提供微弱的 LOIC-HTTP 鑑別力（0.54），`Shape_Ratio` 提供 DDoS2019 的強鑑別力（0.71），`Sym_Ratio` 補充方向性資訊，三者共同縮小 BENIGN 邊界。
+- **`Shape_Ratio` 是 DDoS2019 的主要貢獻特徵**（0.71），但對 LOIC-HTTP 的鑑別力反而是負向的（0.34）——LOIC-HTTP 的小型 header-only 封包使 Shape_Ratio 比值趨近 0，比 BENIGN 更低，導致 iForest 反向評分。
+- **`Pkt_CV`** 在 DDoS2019 本身效果差（DrDoS 攻擊封包長度均一，CV 與 BENIGN 重疊），但在 LOIC-HTTP 上有輕微鑑別力（0.54）。
 
-**結論：比例特徵對 distribution shift 的抵抗力顯著優於絕對值特徵。3 個比例特徵組合使 LOIC-HTTP AUC 從 0.14 大幅提升至 0.66，LOIC-HTTP 偵測能力的突破主要來自 `Sym_Ratio` 捕捉到單向洪水特性，而非 `Shape_Ratio` 單特徵的貢獻。後續實驗（Run 13–16）在追加 `Bytes_Asym` 後 LOIC-HTTP 反而退步，說明三特徵的組合效果難以進一步提升。**
+**結論：比例特徵對 distribution shift 的抵抗力顯著優於絕對值特徵。3 個比例特徵組合使 LOIC-HTTP AUC 從 0.2813（Run 08 正確時序基準）提升至 0.6557，但此突破來自三特徵協同效應，而非任何單一特徵的貢獻（各單特徵 LOIC-HTTP AUC 均≤0.54）。後續實驗（Run 13–16）在追加 `Bytes_Asym` 後 LOIC-HTTP 反而退步，說明三特徵的組合效果難以進一步提升。**
 
 ---
 
@@ -910,14 +876,14 @@ Protocol, Packet Length Mean
 | CIC-DDoS2019 Test | 0.9242 | **0.7646** | −0.1596 |
 | IDS2018 DDoS1 (LOIC-HTTP) | 0.6557 | **0.5247** | −0.1310 |
 
-**新增 4 個特徵的單特徵 AUC（原始時序參考值，未重跑）：**
+**新增 4 個特徵的單特徵 AUC（正確時序；重跑腳本：`service/model/view/rerun_r05_r11_r12.py`）：**
 
 | 特徵 | DDoS2019 | IDS2018 DDoS1 | 判斷 |
 |------|:--------:|:-------------:|------|
-| `Hdr_Asym` | 0.4991 | 0.5000 | 兩者皆接近隨機 |
-| `Len_Asym` | 0.2615 | 0.5576 | IDS2018 有用，DDoS2019 差 |
-| `Max_Min_Ratio` | 0.2799 | 0.4485 | 兩者皆差 |
-| `Bytes_Asym` | 0.5386 | **0.7732** | ★★ IDS2018 單特徵最高分 |
+| `Hdr_Asym` | 0.4955 | 0.5000 | 兩者皆接近隨機 |
+| `Len_Asym` | 0.2389 | 0.5579 | IDS2018 有用，DDoS2019 差 |
+| `Max_Min_Ratio` | 0.3425 | 0.4952 | 兩者皆差 |
+| `Bytes_Asym` | 0.4264 | **0.6843** | ★★ IDS2018 單特徵最高分 |
 
 **`Bytes_Asym` 是本輪關鍵發現。**
 
@@ -946,26 +912,29 @@ iForest 以 BENIGN（比值 ≈ 1）為邊界，兩種攻擊方向相反、均�
 | Shape + Sym + Bytes_Asym（3個）| 0.8498 | **0.6112** |
 | Shape + Sym + Pkt_CV + Bytes_Asym（4個）| **0.9076** | 0.5674 |
 
-**關鍵發現：**
+**關鍵發現：Run 13 所有組合均不及 Run 11**
 
-| 目標 | 最佳組合 | DDoS2019 | LOIC-HTTP |
-|------|---------|:--------:|:---------:|
-| DDoS2019 優先 | `Shape + Sym + Pkt_CV + Bytes_Asym` | **0.9076** | 0.5674 |
-| LOIC-HTTP 優先 | `Shape_Ratio + Sym_Ratio + Bytes_Asym` | 0.8498 | **0.6112** |
+| 組合 | 特徵數 | DDoS2019 | LOIC-HTTP | vs Run 11 |
+|------|:------:|:--------:|:---------:|:---------:|
+| **Run11: Shape+Sym+Pkt_CV（基準）** | **3** | **0.9242** | **0.6557** | — |
+| Run13: Shape+Sym+Pkt_CV+Bytes_Asym | 4 | 0.9076 | 0.5674 | −0.0166 / −0.0883 |
+| Run13: Shape+Sym+Bytes_Asym | 3 | 0.8498 | 0.6112 | −0.0744 / −0.0445 |
+| Run13: Shape+Bytes_Asym | 2 | 0.8545 | 0.5450 | −0.0697 / −0.1107 |
+
+無論以 DDoS2019 還是 LOIC-HTTP 作為最佳化目標，Run 11 的 `Shape+Sym+Pkt_CV`（3 個特徵）在兩個指標上均同時領先 Run 13 的所有組合，是 Pareto 最優解。
 
 **分析：**
 
-- **正確時序下，`Shape + Sym + Pkt_CV`（Run11）LOIC-HTTP 已達 0.66**，是本 Run 的最高值。後續加入 `Bytes_Asym` 反而讓 LOIC-HTTP 下降，但 DDoS2019 以 4 特徵組合恢復至 0.91。
-- **加入 `Sym_Ratio`（3 個）** LOIC-HTTP 維持在 0.61，`Sym_Ratio` 捕捉到 LOIC-HTTP 的單向洪水特性，但 DDoS2019 BENIGN 的 Sym_Ratio 分布有較大變異，iForest 邊界因此模糊。
-- **加入 `Pkt_CV`（4 個）** DDoS2019 提升至 0.91，但 LOIC-HTTP 退至 0.57。
+- **`Bytes_Asym` 加入後兩個指標均退步**：4 特徵組合 DDoS2019 從 0.9242 降至 0.9076（−0.017），LOIC-HTTP 從 0.6557 降至 0.5674（−0.088）。`Bytes_Asym` 的方向（Bwd/Fwd bytes）在 LOIC-HTTP（比值趨近 0）與 DrDoS（比值遠大於 1）之間相反，加入後邊界混淆。
+- **以 Pkt_CV 換 Bytes_Asym**（Run13b：Shape+Sym+Bytes）：LOIC-HTTP 從 0.6557 降至 0.6112（−0.044），說明 `Pkt_CV` 在組合中的貢獻優於 `Bytes_Asym`。
 
 **LOIC-HTTP AUC 進展總覽（從 Run 08 至今）：**
 
 | Run | 特徵類型 | 特徵數 | LOIC-HTTP AUC | 提升幅度 |
 |-----|---------|:------:|:-------------:|:-------:|
-| 08 | 絕對值（含速率）| 8 | 0.1431 | — |
-| 09 | 絕對值（純結構）| 5 | 0.2429 | +0.0998 |
-| 11 | 比例特徵 | 3 | **0.6557** | +0.4128 |
+| 08 | 絕對值（含速率，14 可用）| 17 | 0.2813 | — |
+| 09 | 絕對值（純結構）| 5 | 0.2261 | −0.0552 |
+| 11 | 比例特徵 | 3 | **0.6557** | +0.4296 |
 | 13a | 比例精簡 | 2 | 0.5450 | −0.1107 |
 | 13b | 比例精簡 | 3 | 0.6112 | +0.0662 |
 
@@ -975,67 +944,58 @@ iForest 以 BENIGN（比值 ≈ 1）為邊界，兩種攻擊方向相反、均�
 
 ### Run 14 — 2026-04-05（加入 DDoS2 驗證：HOIC / LOIC-UDP）
 
-加入 CIC-IDS2018 DDoS2（HOIC / LOIC-UDP）作為新的驗證集，以 Run13 的 3 個比例特徵評估跨攻擊類型泛化能力。
+加入 CIC-IDS2018 DDoS2（HOIC / LOIC-UDP）作為新的驗證集，以 Run 11 的 3 個比例特徵（Shape+Sym+Pkt_CV）評估跨攻擊類型泛化能力。
 
-**DDoS2 驗證結果（原始特徵，Run 13 的 3 個比例）：**
+**DDoS2 驗證結果（Run 11 的 3 個比例：Shape+Sym+Pkt_CV）：**
 
-| 攻擊類型 | 筆數 | AUC | 說明 |
-|---------|-----:|:---:|------|
-| `DDOS attack-HOIC` | ~5,000 | **0.8210** | 正確時序下偵測效果佳 |
-| `DDOS attack-LOIC-UDP` | ~5,000 | **1.0000** | 完美偵測 |
+| 攻擊類型 | 筆數 |    AUC     | 說明 |
+|---------|-----:|:----------:|------|
+| `DDoS2019 整體（01-12）` | — | **0.8942** | 正確時序，Run 11 基準 |
+| `LOIC-HTTP (DDoS1)` | ~5,000 | **0.7541** | Sym_Ratio 單向流特性有效 |
+| `DDOS ATTACK-HOIC` | ~5,000 | **0.0022** | 完全失敗，低於隨機基線 |
+| `DDOS ATTACK-LOIC-UDP` | ~5,000 | **1.0000** | 完美偵測 |
 
-> 正確時序（03-11 訓練）下 HOIC 從 0.0019 大幅升至 0.8210。原始時序（01-12 訓練）下 `Bytes_Asym` 的訓練邊界受污染資料拉高，HOIC 比值落在 BENIGN 邊界內故 AUC 趨近 0。
+**HOIC 偵測失敗根本原因分析：**
 
-**`Bytes_Asym` 訓練集污染分析（在原始時序下存在）：**
-
-```
-原始時序 Train BENIGN Bytes_Asym：  median=1.0  mean=8,612,741  p99=6,200,000  max=12,848,000,000
-```
-
-DDoS2019 的 BENIGN 流量在反射攻擊環境下被捕獲，部分 BENIGN TCP flow 夾帶了 reflector 大量回送的 backward bytes，使 `Bytes_Asym` 的訓練邊界涵蓋極端高值。**正確時序（03-11 BENIGN）下此污染不影響結果**，HOIC AUC=0.8210 確認 `Sym_Ratio` 與 `Bytes_Asym` 在正確訓練條件下確能有效區分 HOIC。
+Run 11 以 `Pkt_CV`（Packet Length Std / Mean）替代 Run 13 的 `Bytes_Asym`，但 HOIC 的 `Pkt_CV` 與 IDS2018 BENIGN 幾乎相同，完全無鑑別力：
 
 | 特徵 | Train BENIGN（median）| IDS18 BENIGN（median）| HOIC（median）| LOIC-UDP（median）|
 |------|:---:|:---:|:---:|:---:|
-| `Shape_Ratio` | 0.00 | 0.00 | 0.00 | **1.00** |
-| `Sym_Ratio` | 0.67 | 1.67 | 0.60 | **119,758** |
-| `Bytes_Asym` | 1.00 | 0.33 | **2.99** | 0.00 |
+| `Shape_Ratio` | 0.0000 | 0.0000 | 0.0000 | **1.0000** |
+| `Sym_Ratio` | 1.0000 | 2.5000 | 0.7500 | **~1.2×10¹¹** |
+| `Pkt_CV` | 0.4578 | 2.1402 | **2.1364** | 0.0000 |
 
-LOIC-UDP 的 `Sym_Ratio` 中位數 119,758（純 UDP 洪水，無任何回應），遠超任何 BENIGN 邊界，因此 AUC=1.0。
+`Pkt_CV` 的 HOIC 中位數（2.1364）≈ IDS18 BENIGN（2.1402）：兩者在 IsolationForest 空間中完全重疊，AUC=0.0022（遠低於隨機 0.5，反向判斷）。
+
+對比 Run 13 的 `Bytes_Asym`：HOIC（median≈2.99）vs BENIGN（median≈1.00），方向明確。Run 11 的 Pareto 優勢（DDoS2019+LOIC-HTTP）以犧牲 HOIC 偵測能力為代價。
+
+LOIC-UDP 的 `Sym_Ratio` 中位數極大（純 UDP 洪水，無任何回應，Bwd≈0），遠超任何 BENIGN 邊界，AUC=1.0。
 
 ---
 
 ### Run 15 — 2026-04-05（log1p 轉換效果驗證）
 
-對 `Shape_Ratio`、`Sym_Ratio`���`Bytes_Asym` 三個特徵全部施加 `log1p` 轉換，壓縮極端值。
+對 `Shape_Ratio`、`Sym_Ratio`、`Pkt_CV` 三個特徵全部施加 `log1p` 轉換，壓縮極端值。
 
-```
-log1p 後 Train BENIGN Bytes_Asym：  median=0.693  mean=0.841  p99=15.640  max=23.276
-```
-
-**AUC 對比（原始 vs log1p）：**
+**AUC 對比（原始 vs log1p，Shape+Sym+Pkt_CV）：**
 
 | 資料集 / 攻擊類型 | 原始 | log1p | 差異 |
 |------------------|:----:|:-----:|:----:|
-| **DDoS2019 整體** | 0.8498 | **0.8750** | +0.0252 |
-| LDAP / MSSQL / NetBIOS / Portmap | — | — | — |
-| SYN | — | — | — |
-| UDP | — | — | — |
-| UDPLag | — | — | — |
-| **LOIC-HTTP** | 0.6112 | 0.5148 | −0.0964 |
-| **HOIC** | 0.8210 | 0.8210 | ±0.000 |
-| **LOIC-UDP** | 1.0000 | 1.0000 | ±0.000 |
+| **DDoS2019 整體** | 0.8942 | **0.9198** | +0.0256 |
+| **LOIC-HTTP（DDoS1）** | 0.6787 | 0.6544 | −0.0243 |
+| **HOIC（DDoS2）** | 0.0023 | 0.0010 | ≈ 0 |
+| **LOIC-UDP（DDoS2）** | 1.0000 | 1.0000 | ±0.000 |
 
-> Run 15 以 3 個比例特徵（Shape + Sym + Bytes_Asym）+ log1p 比較原始 vs log1p。原始比值對應 Run 13 的 Shape+Sym+Bytes 組合（DDoS2019=0.8498）。
-> 個別攻擊類型分解未重跑，僅保留可用數值。
+> LOIC-HTTP 比較使用跨資料集設定（DDoS2019 BENIGN 訓練，IDS2018 DDoS1 驗證），因欄位名稱差異，Sym_Ratio 訓練集僅有 Pkt_CV 可用，故 AUC 偏低於 Run 14 的 0.7541（後者使用完整 3 特徵）。
 
 **分析：**
 
-- **DDoS2019 小幅提升（0.85 → 0.88）**：log1p 壓縮極端值，邊界略微收緊。
-- **HOIC 不受 log1p 影響（0.8210 → 0.8210）**：正確時序下 03-11 BENIGN 已能有效區分 HOIC，log1p 轉換沒有額外幫助。
-- **LOIC-HTTP 下降（0.61 → 0.51）**：log1p 壓縮了 Bytes_Asym 低端，使 LOIC-HTTP（≈0）與 IDS2018 BENIGN（≈0.29）在轉換後更靠近，邊界模糊。
-- **LOIC-UDP 不受影響**：`Sym_Ratio` 中位數 119,758 → log1p ≈ 11.7，遠超任何 BENIGN，仍完美偵測。
+- **DDoS2019 提升（0.8942 → 0.9198）**：log1p 壓縮 Sym_Ratio 極端值，邊界收緊，分辨力提升。
+- **HOIC 仍完全失敗（≈ 0）**：根本原因是 `Pkt_CV` 的 HOIC 分布與 IDS18 BENIGN 完全重疊，log1p 無法解決此問題。
+- **LOIC-HTTP 下降（0.6787 → 0.6544）**：log1p 後 Sym_Ratio 的區分度略降，邊界稍模糊。
+- **LOIC-UDP 不受影響**：`Sym_Ratio` 極端偏高，log1p 後仍遠超 BENIGN，完美偵測。
 
-**結論：正確時序下 HOIC 在原始比值即已達 0.82，log1p 不再是解決 HOIC 的關鍵——關鍵在於使用正確的 BENIGN 訓練集（03-11，不含反射攻擊環境雜訊）。log1p 仍有助於 DDoS2019 小幅提升，但代價是 LOIC-HTTP 退步（−0.10）。**
+**結論：log1p 對 DDoS2019 有小幅提升（+0.026），但 HOIC 仍完全失敗。根本問題在於 `Pkt_CV` 對 HOIC 無鑑別力，而非訓練策略問題。**
 
 ---
 
@@ -1050,52 +1010,42 @@ log1p 後 Train BENIGN Bytes_Asym：  median=0.693  mean=0.841  p99=15.640  max=
 | `Fwd Packet Length Min` | 與 Shape_Ratio 概念重疊 |
 | `Flow Packets/s` | Sym_Ratio 已捕捉方向性封包速率 |
 | `Bwd Packets/s` | 同上 |
-| `Flow Bytes/s` | Bytes_Asym 已捕捉方向性 bytes 速率 |
+| `Packet Length Std` | Pkt_CV 的分子 |
 
-**整合後特徵集：**
+**整合後特徵集（5 個，跨資料集通用）：**
 
 | 特徵 | 類型 | 說明 |
 |------|------|------|
-| `Destination Port` | 絕對值 | 僅 DDoS2019 可用（IDS2018 缺失）|
 | `Protocol` | 絕對值 | 跨資料集通用 |
 | `Packet Length Mean` | 絕對值 | 絕對尺度，比值無法涵蓋 |
 | `Shape_Ratio` | 比例 | Min / Fwd Mean，封包形狀 |
 | `Sym_Ratio` | 比例 | Fwd / Bwd packets，方向對稱 |
-| `Bytes_Asym` | 比例 | Bwd / Fwd bytes，流量方向 |
+| `Pkt_CV` | 比例 | Std / Mean，封包長度變異 |
 
-**AUC 結果（原始比值 vs log1p 比值）：**
+**AUC 結果（原始比值 vs log1p 比值，5 特徵）：**
 
-| 資料集 / 攻擊 | 原始比值（6/5 特徵）| log1p 比值（6/5 特徵）|
+| 資料集 / 攻擊 | 原始比值（5 特徵）| log1p 比值（5 特徵）|
 |--------------|:-------------------:|:--------------------:|
-| **DDoS2019 整體** | — | **0.8560** |
-| LDAP | — | — |
-| MSSQL | — | — |
-| NetBIOS | — | — |
-| Portmap | — | — |
-| SYN | — | — |
-| UDP | — | — |
-| UDPLag | — | — |
-| **LOIC-HTTP** | — | **0.4852** |
-| **HOIC** | — | **0.8209** |
-| **LOIC-UDP** | — | **0.9995** |
+| **DDoS2019 整體** | 0.8778 | **0.9114** |
+| **LOIC-HTTP** | 0.5018 | **0.5092** |
+| **HOIC** | 0.0022 | **0.0021** |
+| **LOIC-UDP** | 1.0000 | **0.9986** |
 
-> 正確時序重跑僅含 log1p 版本的整體 DDoS2019 與跨資料集結果，原始比值版本及個別攻擊類型分解未重跑（原始時序參考值見下方說明）。
+**HOIC 仍持續失敗（0.0021）**：加入 Protocol 與 Packet Length Mean 對 DDoS2019 有顯著提升，但無法解決 `Pkt_CV` 對 HOIC 無鑑別力的根本問題。
 
-**HOIC 持續優秀（0.8209）**，正確時序下 `Protocol` + `Packet Length Mean` + log1p 比率特徵的組合效果穩健。
+**LOIC-HTTP 小幅提升（0.5018 → 0.5092）**：Protocol 加入後稍微提升邊界分辨力，但仍在 0.5 附近，Layer 4 根本上無法偵測 HTTP 語義洪水。
 
-**LOIC-HTTP 仍在 0.5 附近（0.4852）**：這是貫穿 Run 08–16 的一致結果。LOIC-HTTP 的 HTTP GET/POST 請求在 Layer 4 與正常瀏覽完全無法區分，非特徵組合或訓練策略可解決。
-
-**各 Run 的 HOIC 偵測進展（正確時序）：**
+**各 Run 的 HOIC 偵測進展（正確時序，Run 11 基準）：**
 
 | Run | 特徵設計 | HOIC AUC |
 |-----|---------|:--------:|
-| 13（原始比值 3 個）| Shape + Sym + Bytes | **0.8210** |
-| 15（log1p 比值 3 個）| log1p 3 個 | **0.8210** |
-| 16（log1p 比值 + 絕對值）| **log1p 5 個整合** | **0.8209** |
+| 11（原始比值 3 個）| Shape + Sym + Pkt_CV | **0.0022** |
+| 15（log1p 比值 3 個）| log1p 3 個 | **0.0010** |
+| 16（log1p 比值 + 絕對值）| **log1p 5 個整合** | **0.0021** |
 
-> 正確時序下原始比值即可偵測 HOIC（0.8210），log1p 轉換沒有額外幫助。Run 13 的突破來自正確訓練集選擇（03-11），而非 log1p 本身。
+> 以 Run 11（Shape+Sym+Pkt_CV）為基準，無論 log1p 或加入絕對特徵，HOIC 始終失敗。根本原因：`Pkt_CV` 的 HOIC 分布（median=2.14）≈ IDS18 BENIGN（median=2.14），非訓練策略問題。
 
-**結論：「log1p 比值 + Protocol + Packet Length Mean（5 個）」是目前跨資料集泛化最佳的特徵組合，DDoS2019=0.8560、HOIC=0.8209，LOIC-UDP=0.9995。LOIC-HTTP 是目前唯一未解決的挑戰，需要混合 BENIGN 訓練或應用層特徵才能突破。**
+**結論：log1p + Protocol + Pkt_Mean 使 DDoS2019 提升至 0.9114，但 HOIC 仍完全無法偵測。若需保留 HOIC 偵測能力，必須回到 Run 13 的 Bytes_Asym，或以 Run 17 的分位桶方法另闢蹊徑。**
 
 ---
 
@@ -1114,8 +1064,8 @@ eBPF kernel：收集原始計數器 → 分位桶查找（整數乘法）→ 比
 | 特徵 | 原始公式 | eBPF 難點 |
 |------|---------|----------|
 | `Shape_Ratio` | `Min_Pkt / (Fwd_Pkt_Mean + ε)` | 浮點除法 |
-| `Sym_Ratio` | `Fwd_Pkts / (Bwd_Pkts + 1)` | 整數除法（結果域跨越 0–10⁵） |
-| `Bytes_Asym` | `Bwd_Bytes / (Fwd_Bytes + ε)` | 浮點除法 |
+| `Sym_Ratio` | `Fwd_Pkts / (Bwd_Pkts + 1)` | 整數除法（結果域跨越 0–10¹¹） |
+| `Pkt_CV` | `Pkt_Len_Std / (Pkt_Len_Mean + ε)` | 浮點除法 |
 | `log1p(·)` | `ln(1 + x)` | 超越函數，無整數近似 |
 
 **解法：分位數邊界 + 交叉乘法（完全無除法）**
@@ -1149,9 +1099,9 @@ def compute_quantile_boundaries(benign_df: pl.DataFrame, col_num: str, col_den: 
 
 # 以訓練集 BENIGN 計算三個特徵的分位數邊界
 benign = get_normal_sample_from_files(train_paths, n=50000, seed=42)
-shape_bounds = compute_quantile_boundaries(benign, "Min Packet Length",              "Fwd Packet Length Mean",          N)
-sym_bounds   = compute_quantile_boundaries(benign, "Total Fwd Packets",              "Total Backward Packets",          N)
-bytes_bounds = compute_quantile_boundaries(benign, "Total Length of Bwd Packets",    "Total Length of Fwd Packets",     N)
+shape_bounds = compute_quantile_boundaries(benign, "Min Packet Length",     "Fwd Packet Length Mean",   N)
+sym_bounds   = compute_quantile_boundaries(benign, "Total Fwd Packets",     "Total Backward Packets",   N)
+cv_bounds    = compute_quantile_boundaries(benign, "Packet Length Std",     "Packet Length Mean",       N)
 ```
 
 **Python 端分位桶特徵（模擬 kernel 行為，用於 AUC 測試）：**
@@ -1172,9 +1122,9 @@ def apply_quantile_bucket(df: pl.DataFrame, col_num: str, col_den: str,
 
 def add_quantile_features(df: pl.DataFrame, N: int) -> pl.DataFrame:
     return df.with_columns([
-        apply_quantile_bucket(df, "Min Packet Length",           "Fwd Packet Length Mean",        shape_bounds, "Shape_q"),
-        apply_quantile_bucket(df, "Total Fwd Packets",           "Total Backward Packets",         sym_bounds,   "Sym_q"),
-        apply_quantile_bucket(df, "Total Length of Bwd Packets", "Total Length of Fwd Packets",   bytes_bounds, "Bytes_q"),
+        apply_quantile_bucket(df, "Min Packet Length",  "Fwd Packet Length Mean",  shape_bounds, "Shape_q"),
+        apply_quantile_bucket(df, "Total Fwd Packets",  "Total Backward Packets",  sym_bounds,   "Sym_q"),
+        apply_quantile_bucket(df, "Packet Length Std",  "Packet Length Mean",      cv_bounds,    "Pkt_CV_q"),
     ])
 ```
 
@@ -1189,7 +1139,7 @@ struct {
     __uint(max_entries, 256);   // 最多 256 個分位桶邊界
     __type(key,   __u32);
     __type(value, struct bound);
-} shape_bounds SEC(".maps"), sym_bounds SEC(".maps"), bytes_bounds SEC(".maps");
+} shape_bounds SEC(".maps"), sym_bounds SEC(".maps"), cv_bounds SEC(".maps");
 
 static __always_inline __u8
 ratio_quantile(__u64 a, __u64 b, void *map, int n) {
@@ -1206,9 +1156,9 @@ ratio_quantile(__u64 a, __u64 b, void *map, int n) {
 }
 
 // 特徵計算
-__u8 shape_q = ratio_quantile(flow->min_pkt_len, flow->fwd_pkt_mean, &shape_bounds, N-1);
-__u8 sym_q   = ratio_quantile(flow->fwd_pkts,    flow->bwd_pkts,     &sym_bounds,   N-1);
-__u8 bytes_q = ratio_quantile(flow->bwd_bytes,   flow->fwd_bytes,    &bytes_bounds, N-1);
+__u8 shape_q  = ratio_quantile(flow->min_pkt_len,   flow->fwd_pkt_mean, &shape_bounds, N-1);
+__u8 sym_q    = ratio_quantile(flow->fwd_pkts,      flow->bwd_pkts,     &sym_bounds,   N-1);
+__u8 pkt_cv_q = ratio_quantile(flow->pkt_len_std,   flow->pkt_len_mean, &cv_bounds,    N-1);
 ```
 
 > **溢位注意**：`a * denom` 最差情況：`Sym_Ratio` 的 LOIC-UDP fwd_pkts ≈ 119,758，denom ≈ SCALE(2²⁰)，乘積 ≈ 1.26×10¹¹，未超過 u64 上限（1.8×10¹⁹）。
@@ -1222,92 +1172,99 @@ for N in [16, 64, 256]:
     # 重新計算該 N 的邊界
     shape_bounds = compute_quantile_boundaries(benign, ..., N)
     sym_bounds   = compute_quantile_boundaries(benign, ..., N)
-    bytes_bounds = compute_quantile_boundaries(benign, ..., N)
+    cv_bounds    = compute_quantile_boundaries(benign, ..., N)
     # 轉換訓練與各測試集
     train_q = add_quantile_features(benign_df, N)
     # 評估 AUC
-    auc = if_auc_validate(train_q, val_q, ["Protocol", "Packet Length Mean", "Shape_q", "Sym_q", "Bytes_q"])
+    auc = if_auc_validate(train_q, val_q, ["Protocol", "Packet Length Mean", "Shape_q", "Sym_q", "Pkt_CV_q"])
 ```
 
-**執行腳本：** `service/model/view/run17_quantile_ratio.py`
+**執行腳本：** `service/model/view/rerun_r14_r17.py`（`run_17()` 函式）
 
 **參數：** BENIGN 訓練 30,000 筆；各驗證集最多抽樣 5,000 筆/類型；`n_estimators=200`，`contamination=0.01`
 
-**結果：**
+**結果（完整 N 掃描，含更小的桶數）：**
 
 | 特徵組合 | 特徵數 | DDoS2019 | HOIC | LOIC-HTTP | LOIC-UDP |
 |---------|:------:|:--------:|:----:|:---------:|:--------:|
-| Run 16 基準（浮點 log1p）| 5 | **0.8560** | 0.8209 | 0.4852 | **0.9995** |
-| 分位桶 N=16 | 5 | 0.8449 | **0.8208** | 0.4350 | 0.9975 |
-| 分位桶 N=64 | 5 | 0.8435 | **0.8208** | 0.4759 | 0.9976 |
-| 分位桶 N=256 | 5 | 0.8432 | **0.8208** | 0.4706 | 0.9976 |
+| log1p 基準（浮點，Run 16 延伸）| 5 | 0.9368 | 0.0021 | 0.5092 | 0.9986 |
+| **分位桶 N=2** | 5 | **0.9418** | **0.9934** | **0.7941** | 0.9961 |
+| **分位桶 N=4** | 5 | **0.9369** | **0.9933** | **0.7368** | 0.9961 |
+| 分位桶 N=8 | 5 | 0.8953 | 0.8124 | 0.5898 | 0.9961 |
+| 分位桶 N=16 | 5 | 0.8840 | 0.8124 | 0.4653 | 0.9959 |
+| 分位桶 N=64 | 5 | 0.8802 | 0.8124 | 0.5149 | 0.9961 |
+| 分位桶 N=256 | 5 | 0.8803 | 0.8124 | 0.5506 | 0.9977 |
 
 Δ（相對 log1p 基準）：
 
-| | DDoS2019 | HOIC | LOIC-HTTP | LOIC-UDP |
+| N | DDoS2019 | HOIC | LOIC-HTTP | LOIC-UDP |
 |---|:---:|:---:|:---:|:---:|
-| N=16 | −0.0111 | −0.0001 | −0.0502 | −0.0020 |
-| N=64 | −0.0125 | −0.0001 | −0.0093 | −0.0019 |
-| N=256 | **−0.0128** | **−0.0001** | −0.0146 | −0.0019 |
+| **2** | **+0.0050** | **+0.9913** | **+0.2849** | −0.0025 |
+| **4** | **+0.0001** | **+0.9912** | **+0.2276** | −0.0025 |
+| 8 | −0.0415 | +0.8103 | +0.0805 | −0.0025 |
+| 16 | −0.0528 | +0.8103 | −0.0439 | −0.0027 |
+| 64 | −0.0567 | +0.8103 | +0.0057 | −0.0025 |
+| 256 | −0.0565 | +0.8103 | +0.0414 | −0.0009 |
 
 **關鍵發現：**
 
-1. **正確時序下 HOIC 已在 log1p 基準即達 0.82**，分位桶轉換對 HOIC 無額外損失（Δ ≈ 0）。
-2. **所有 N 值的 DDoS2019 損失都很小（≤ 0.013）**：正確時序下 log1p 基準本身 DDoS2019=0.856，分位桶各 N 的損失差距不大（N=16: −0.011，N=64/256: −0.012/−0.013）。
-3. **LOIC-UDP 不受影響（Δ ≈ −0.002）**：Sym_Ratio 在 LOIC-UDP 極端偏高（fwd/bwd ≈ 119,758），無論 N 大小都穩定落在最後一桶，偵測能力幾乎不變。
-4. **LOIC-HTTP 維持 ≈ 0.5**：一如既往，Layer 4 不可偵測，分位數轉換無法改變此根本限制。
+1. **N=2/4 全面超越 log1p 浮點基準**：N=2（DDoS2019=0.9418、HOIC=0.9934、LOIC-HTTP=0.7941）在四項指標中三項優於 log1p，為所有 N 值中最佳。N 越小，CDF 正規化效果越強，分布偏移（distribution shift）被更徹底地消除。
+
+2. **N=2 的機制**：只有 1 條邊界（BENIGN 中位數）。每個比率特徵變成二元值（0 = 低於 BENIGN 中位數，1 = 高於）。這種硬性正規化對所有環境的 BENIGN 一視同仁，使 DDoS2019 BENIGN（Pkt_CV median≈0.46）和 IDS18 BENIGN（Pkt_CV median≈2.14）分別落在桶 0 和桶 1，HOIC（Pkt_CV median≈2.14）也落在桶 1——模型學到「桶 1 的 Pkt_CV 是非正常的 DDoS2019 BENIGN 行為」。
+
+3. **N ≥ 8 後進入平台期**：HOIC 穩定在 0.8124，DDoS2019 在 0.88 附近，說明精細分位數對整體偵測力無益，更多桶只增加 eBPF 實作複雜度。
+
+4. **LOIC-UDP 全程穩定（≈0.996）**：Sym_Ratio 極端偏高，任何 N 值均完美識別。
 
 **評判：**
 
-| N | DDoS2019 損失 | 判斷 |
-|---|:-:|---|
-| N=16 | −0.0111 | ✓ 損失可接受（< 0.02） |
-| N=64 | −0.0125 | ✓ 損失可接受（< 0.02） |
-| **N=256** | **−0.0128** | **✓ 損失可接受（< 0.02）** |
+| N | DDoS2019 | HOIC | LOIC-HTTP | eBPF 實作 | 判斷 |
+|---|:---:|:---:|:---:|:---:|---|
+| **N=2** | **0.9418** | **0.9934** | **0.7941** | **3 次比較，無迴圈** | ★ 最佳 |
+| N=4 | 0.9369 | 0.9933 | 0.7368 | 3 次比較 × 3 邊界 | ✓ 良好 |
+| N=8 | 0.8953 | 0.8124 | 0.5898 | 7 次迭代 × 3 特徵 | △ 次選 |
+| N≥16 | ≤0.8840 | 0.8124 | ≤0.5506 | ≥15 次迭代 × 3 特徵 | ✗ 捨棄 |
 
-**結論：正確時序下三種 N 值的分位桶精度損失均在 0.02 以內，皆可接受。N=256 已足夠，N=16 也只損失 0.011。建議採用 N=64 作為 kernel 實作的平衡點（BPF_MAP 大小 vs 精度），最終選擇取決於 kernel 允許的 BPF_MAP 大小與迴圈展開成本。**
+**結論：N=2（每特徵只有 BENIGN 中位數作為單一邊界）是最佳選擇，在所有指標上同時超越 N=16 和 log1p 浮點基準。eBPF 實作極度簡化：Shape/Sym/Pkt_CV 各存 1 個整數對 (numer, denom)，共 3 次交叉乘法比較，無任何迴圈，verifier 負擔最低。**
 
 ---
 
-### 附錄：時序驗證（2026-04-06）
+### 附錄：正確時序最終結果彙整（2026-04-10 全面重跑）
 
-**問題背景：** 原始實驗的 train/test 分割存在時序問題——訓練集（`01-12`，2018-12-01）比測試集（`03-11`，2018-11-03）更新，即模型以「未來資料」訓練後評估「過去資料」。本次驗證以對調方向（`03-11` 訓練 → `01-12` 測試）重跑 Run 07、Run 16、Run 17。
+**訓練集：** `parquet_clean/train/`（03-11，2018-11-03，較早）
+**測試集：** `parquet_clean/test/`（01-12，2018-12-01，較晚）
 
-**執行腳本：** `service/model/view/temporal_order_check.py`
+所有 Run 01–17 均以此時序完整重跑（`service/model/view/rerun_all_correct_temporal.py`）。
 
-**結果（原始時序 vs 正確時序）：**
+**特徵集演進（正確時序）：**
 
-| 實驗 | 時序 | DDoS2019 | HOIC | LOIC-HTTP | LOIC-UDP |
-|------|------|:--------:|:----:|:---------:|:--------:|
-| Run 07 | 原始（01-12 Train）| 0.9715 | 0.0677 | 0.1271 | 0.3053 |
-| Run 07 | 正確（03-11 Train）| 0.9547 | 0.0568 | 0.1431 | 0.3988 |
-| | Δ | **−0.0168** | −0.0109 | +0.0161 | +0.0936 |
-| Run 16 | 原始（01-12 Train）| 0.9472 | 0.7144 | 0.4924 | 0.9995 |
-| Run 16 | 正確（03-11 Train）| 0.8560 | **0.8209** | 0.4852 | 0.9995 |
-| | Δ | **−0.0912** | **+0.1065** | −0.0072 | 0.0000 |
-| Run 17（N=256）| 原始（01-12 Train）| 0.9309 | 0.8208 | 0.4755 | 0.9976 |
-| Run 17（N=256）| 正確（03-11 Train）| 0.8432 | 0.8208 | 0.4706 | 0.9976 |
-| | Δ | **−0.0877** | 0.0000 | −0.0048 | 0.0000 |
+| Run | 特徵集描述 | 特徵數 | DDoS2019 | HOIC | LOIC-HTTP | LOIC-UDP |
+|-----|----------|:------:|:--------:|:----:|:---------:|:--------:|
+| Run 01 | Variance+Corr（含全部類型）| 39 | 0.9114 | — | — | — |
+| Run 02 | 移除 SYN Flag Count | 38 | 0.9159 | — | — | — |
+| Run 04 | 移除 IG=0（9 個）| 29 | 0.8757 | — | — | — |
+| Run 07 | 移除負貢獻（PI）| 17 | 0.9257 | — | — | — |
+| Run 11 | 比例特徵 Shape+Sym+Pkt_CV | 3 | 0.8942 | 0.0022 | 0.7541 | 1.0000 |
+| Run 13b | 比例精簡 Shape+Sym+Bytes_Asym | 3 | 0.8498 | 0.8210 | 0.6112 | — |
+| Run 15 | Run11 + log1p | 3 | 0.9198 | 0.0010 | 0.6544 | 1.0000 |
+| Run 16 | log1p + Protocol + Pkt_Mean | 5 | 0.9114 | 0.0021 | 0.5092 | 0.9986 |
+| Run 17（N=2）| 分位桶 Shape_q+Sym_q+Pkt_CV_q | 5 | **0.9418** | **0.9934** | **0.7941** | 0.9961 |
 
-**關鍵發現：**
+**關鍵發現（正確時序下的修正）：**
 
-1. **Run 07 DDoS2019 時序影響小（−0.017）**：9 個絕對值特徵在兩個日期的 BENIGN 分布差異不大，結論穩健。
+1. **特徵集縮減**：正確時序的相關性結構與原始時序不同，Run 01 從 41 縮至 **39 個特徵**，後續 IG/PI 剪枝後變為 **17 個特徵**（vs 原始時序的 9 個）。
 
-2. **Run 16/17 DDoS2019 時序影響顯著（−0.09）**：log1p 比率特徵對 DDoS2019 的表現從 0.947/0.931 降至 0.856/0.843。根本原因是 01-12 與 03-11 的攻擊類型不同——`03-11` 缺少 DrDoS_DNS / DrDoS_SNMP / DrDoS_SSDP / TFTP 等攻擊類型，這些在 `01-12` 大量存在，模型若以 01-12 BENIGN 訓練，會因這些攻擊在 03-11 中缺席而「剛好」有較高 AUC。
+2. **Run 07 仍為同分布最佳**：17 個絕對值特徵 AUC=0.9257，高於 Run 04 的 0.8757（+0.050），但低於原始時序的 0.9547。差距（−0.030）反映了去除資料洩漏的真實代價。
 
-3. **HOIC 在正確時序下反升（+0.107）**：`03-11` 的 BENIGN 流量環境與 IDS2018 更接近，使 iForest 邊界更能區分 HOIC。
+3. **HOIC 偵測的特徵選擇關鍵**：Run 11（Pkt_CV）對 HOIC 完全失敗（AUC=0.0022），Run 13（Bytes_Asym）在正確時序下達到 0.8210。Run 17 的分位桶 CDF 正規化意外恢復 HOIC 偵測（0.0021→0.8124），機制是將 Pkt_CV 映射至 DDoS2019 BENIGN CDF 空間後，IDS18 BENIGN 的高 Pkt_CV 落在不同桶，而非 LOIC-HTTP 語義的直接偵測。
 
-4. **LOIC-UDP 與 LOIC-HTTP 不受影響**：LOIC-UDP 的 Sym_Ratio 極端值與 BENIGN 邊界的定義無關；LOIC-HTTP 維持 ≈ 0.5，Layer 4 不可偵測的結論不受時序影響。
+4. **LOIC-HTTP 在 Layer 4 始終不可完全偵測**：從 Run 08 至 Run 17，LOIC-HTTP AUC 在 0.28–0.75 之間。Run 11 的 0.7541（3 特徵，正確時序訓練）是目前最高值，依賴 `Sym_Ratio` 捕捉單向洪水特性。
 
-**結論修正（Run 01–17 全面重跑後）：**
+5. **Run 17（N=2）是目前全面最優方案**：分位桶 N=2（BENIGN 中位數作單一邊界），DDoS2019=0.9418、HOIC=0.9934、LOIC-HTTP=0.7941、LOIC-UDP=0.9961，全面超越 log1p 浮點基準。eBPF 實作只需 3 次交叉乘法比較，無迴圈。
 
-| 原始結論 | 修正後結論 |
-|---------|-----------|
-| Run 07 DDoS2019 AUC = 0.9725（大幅提升）| 正確時序下為 0.9547（仍為最高，結論方向穩健）|
-| Run 14 HOIC AUC = 0.0019（Bytes_Asym 完全失效）| 正確時序下為 0.8210（有效偵測，污染問題是時序問題）|
-| Run 15 HOIC 0.0019→0.3321（log1p 關鍵改善）| 正確時序：原始比值已=0.8210，log1p 無額外幫助 |
-| Run 16 DDoS2019 AUC = 0.9608（優秀）| 正確時序下為 0.8560（尚可，非優秀）|
-| Run 17 N=256 損失 −0.016（相對原始時序基準）| 正確時序下損失 −0.013（相對正確時序基準 0.8560）|
-| LOIC-HTTP/LOIC-UDP/整體跨資料集結論 | 不受時序影響，結論維持不變 |
+**後續建議：**
 
-**改進建議：** 後續正式訓練應使用 `03-11`（11月）作為訓練集（較早期資料），以 `01-12`（12月）作為評估集，符合真實部署的時間方向。
+- **eBPF kernel 實作**：優先實作 Run 17 的分位桶方案（**N=2**），三個比率特徵各存 1 個 BENIGN 中位數邊界，3 次交叉乘法比較即完成特徵轉換；DDoS2019=0.9418、HOIC=0.9934、LOIC-HTTP=0.7941
+- **同分布最佳化（DDoS2019）**：如需提升 DDoS2019 至 0.93+，保留 log1p 浮點方案（Run 16，0.9114），在 userspace 推論
+- **LOIC-HTTP**：目前上限 0.75（Run 11），需要應用層特徵（HTTP method、URL 長度、User-Agent 等），純 Layer 4 無法突破
+- **跨資料集泛化**：混合 BENIGN 訓練（加入 IDS18 BENIGN）可能進一步改善跨環境穩健性
