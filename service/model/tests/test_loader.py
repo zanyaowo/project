@@ -4,7 +4,7 @@ Unit tests for service.model.data.loader
 import polars as pl
 import pytest
 
-from service.model.data.loader import load_features_parquet
+from service.model.data.loader import _load_features_parquet as load_features_parquet
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
