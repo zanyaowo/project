@@ -25,6 +25,12 @@ dev = [
 
 [tool.pytest.ini_options]
 pythonpath = ["../.."]
+python_files = ["test_*.py", "harness_*.py"]
+markers = [
+    "slow: marks tests requiring real parquet data (deselect with -m 'not slow')",
+    "harness: marks end-to-end harness tests",
+    "regression: marks AUC/FPR regression gates",
+]
 
 [tool.uv]
 package = false
