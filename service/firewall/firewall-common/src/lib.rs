@@ -5,6 +5,7 @@ pub mod session;
 pub mod constants;
 
 pub mod protocol;
+pub mod model;
 
 #[derive(Copy, Clone)]
 pub struct ModelFeature {
@@ -25,5 +26,6 @@ pub struct ModelFeature {
     pub service_h: u8, // 服務雜湊值 (mod 128)
     pub _padding: [u8; 6], // 補齊 8 bytes 對齊 (2 bytes u8 + 6 bytes padding = 8 bytes)
 }
+
 
 
