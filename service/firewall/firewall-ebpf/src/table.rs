@@ -56,7 +56,7 @@ fn is_connection_closed(flag: u8) -> bool{
 
 //更新session
 #[inline(always)]
-pub fn update_session(params: &SessionUpdateParams) -> bool {
+pub fn update_session(params: &SessionUpdateParams) -> Option<SessionValue> {
     let fwd_key = SessionKey{
         src_ip: params.src_ip,
         dst_ip: params.dst_ip,
@@ -79,21 +79,31 @@ pub fn update_session(params: &SessionUpdateParams) -> bool {
         if let Some(session) = SESSIONS.get_ptr_mut(&fwd_key){
             (*session).orig_pkts += 1;
             (*session).orig_bytes += params.payload_len;
-            (*session).orig_ip_bytes += params.len;
+            (*session).pkt_sum_sq += params.len * params.len;
             (*session).last_seen_ts = bpf_ktime_get_ns();
             (*session).flag = params.flag;
-
             (*session).is_close = is_connection_closed(params.flag);
-            true
+
+            if((*session).min_pkt_len > params.len as u32){
+                (*session).min_pkt_len = params.len as u32;
+            }
+
+            Some(*session)
+
         }else if let Some(session) = SESSIONS.get_ptr_mut(&rev_key){
             (*session).resp_pkts += 1;
             (*session).resp_bytes += params.payload_len;
-            (*session).resp_ip_bytes += params.len;
+            (*session).pkt_sum_sq +=  params.len * params.len;
             (*session).last_seen_ts = bpf_ktime_get_ns();
             (*session).flag = params.flag;
-
             (*session).is_close = is_connection_closed(params.flag);
-            true
+
+            if((*session).min_pkt_len > params.len as u32){
+                (*session).min_pkt_len = params.len as u32;
+            }
+
+            Some(*session)
+
         }else {
             let mut is_close = false;
             is_close = is_connection_closed(params.flag);
@@ -101,18 +111,20 @@ pub fn update_session(params: &SessionUpdateParams) -> bool {
             let new_session = SessionValue {
                 orig_bytes: params.payload_len,
                 orig_pkts: 1,
-                orig_ip_bytes: params.len,
                 resp_bytes: 0,
                 resp_pkts: 0,
-                resp_ip_bytes: 0,
+                pkt_sum_sq: params.len * params.len,
+                min_pkt_len: params.len as u32,
                 start_ts: bpf_ktime_get_ns(),
                 last_seen_ts: bpf_ktime_get_ns(),
                 flag: params.flag,
                 is_close,
                 _padding: [0; 6],
+                score: 0,
             };
             SESSIONS.insert(&fwd_key, &new_session, 0);
-            true
+
+            Some(new_session)
         }
     }
 }
