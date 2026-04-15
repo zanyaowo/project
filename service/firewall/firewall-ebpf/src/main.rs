@@ -6,6 +6,7 @@ mod blocker;
 mod table;
 mod parser;
 mod syn_cookie;
+mod scorer;
 
 use core::mem::size_of;
 
