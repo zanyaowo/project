@@ -189,3 +189,95 @@ df = get_balance_sample_from_files(paths, min_samples=2000)
 # 跳過 'WebDDoS'：總筆數 439 < min_samples 2000
 # 跳過 'UDPLag'：總筆數 1873 < min_samples 2000
 ```
+
+---
+
+## 十二、Distribution Shift：同分布特徵在跨資料集上失效（2026-04-05）
+
+### 問題（Run 08）
+Run 07 的 17 個特徵在 DDoS2019 同分布驗證 AUC=0.9257，但在 CIC-IDS2018（LOIC-HTTP）上 AUC=0.28，低於隨機基線。
+
+### 根本原因
+訓練集 BENIGN（DDoS2019，反射攻擊高速環境）與測試集 BENIGN（IDS2018，一般辦公室流量）的統計分布截然不同：
+
+| 特徵類型 | 問題 |
+|---------|------|
+| 速率特徵（Flow Bytes/s、Bwd Packets/s）| 訓練環境速率極高，辦公室流量落在「異常」區域 |
+| 絕對封包長度特徵 | 不同環境的 MTU、應用層行為差異使邊界偏移 |
+| 絕對時間特徵（IAT）| 高速環境 IAT 極短，辦公室 IAT 較長 → 誤判 |
+
+### 結論
+跨環境部署必須用目標環境的 BENIGN 重新訓練，或改用對分布偏移不敏感的特徵。
+
+---
+
+## 十三、無量綱比例特徵（Run 11–13，2026-04-05）
+
+### 設計思路
+絕對值特徵隨環境（MTU、速率、延遲）改變，比例特徵（dimensionless ratio）只依賴流量的相對結構，對分布偏移天生更穩健。
+
+### 三個核心比例特徵（Run 11，DDoS2019 AUC=0.8942）
+
+| 特徵 | 公式 | 鑑別力 |
+|------|------|------|
+| `Shape_Ratio` | `Min_Pkt / Fwd_Pkt_Mean` | LOIC-UDP 的 min=max=1（flood），形狀完全不同 |
+| `Sym_Ratio` | `Fwd_Pkts / Bwd_Pkts` | LOIC-UDP 無回應（Bwd≈0），Sym_Ratio 極大 |
+| `Pkt_CV` | `Pkt_Len_Std / Pkt_Len_Mean` | DDoS 封包長度往往更均一（CV 低）|
+
+### Pareto 比較（Run 11 vs Run 13 的 Bytes_Asym 組合）
+
+| 組合 | DDoS2019 | LOIC-HTTP | HOIC |
+|------|:---:|:---:|:---:|
+| Run 11（Shape+Sym+Pkt_CV）| **0.8942** | **0.7541** | 0.0022 |
+| Run 13（Shape+Sym+Bytes_Asym）| 0.8498 | 0.6112 | **0.8210** |
+
+Run 11 在 DDoS2019 與 LOIC-HTTP 上是 Pareto 最優，但 `Pkt_CV` 對 HOIC 完全無鑑別力（HOIC 的 Pkt_CV median ≈ IDS18 BENIGN），需要分位桶方法才能解決。
+
+---
+
+## 十四、分位桶整數化與 N=2 突破（Run 17，2026-04-05）
+
+### 核心問題
+比率特徵（Shape_Ratio、Sym_Ratio）涉及浮點除法，eBPF kernel 無法直接執行。
+
+### 解法：交叉乘法（完全無除法）
+```
+a / b < threshold_k  ↔  a × denom_k < b × numer_k
+```
+訓練時計算 BENIGN 的分位數邊界，存為整數對 `(numer_k, denom_k)` 寫入 BPF_MAP。  
+Kernel 只需整數乘法即可判斷分位排名。
+
+### N=2 是全面最優（意外發現）
+
+測試 N=2、4、8、16、64、256 後，N 越小結果越好：
+
+| N | DDoS2019 | HOIC | LOIC-HTTP | LOIC-UDP | eBPF 迭代數 |
+|---|:---:|:---:|:---:|:---:|:---:|
+| log1p 浮點基準 | 0.9368 | 0.0021 | 0.5092 | 0.9986 | Userspace |
+| **N=2** | **0.9418** | **0.9934** | **0.7941** | 0.9961 | **3 次比較，無迴圈** |
+| N=4 | 0.9369 | 0.9933 | 0.7368 | 0.9961 | 9 次 |
+| N=8 | 0.8953 | 0.8124 | 0.5898 | 0.9961 | 21 次 |
+| N≥16 | ≤0.8840 | 0.8124 | ≤0.5506 | ≈0.996 | ≥45 次 |
+
+### 為何 N=2 反而最好
+
+N=2 只用一條邊界（BENIGN 中位數），每個特徵變成二元值（0 = 低於 BENIGN 中位數，1 = 高於）。  
+這種硬正規化將兩個不同 BENIGN 環境的分布強制對齊同一個 {0, 1} 空間，**消除了 distribution shift 的影響**。  
+N 越大、分辨力越細，反而引入更多跨環境分布差異的雜訊。
+
+### eBPF 實作（N=2）
+每個特徵只存 1 個整數對（BENIGN 中位數），整個 kernel 只需 3 次交叉乘法比較，無任何迴圈，verifier 壓力最低：
+
+```c
+// BENIGN 中位數邊界，各存 1 個整數對
+struct bound shape_med, sym_med, cv_med;  // numer/denom
+
+__u8 shape_q  = (flow->min_pkt_len * shape_med.denom < flow->fwd_pkt_mean * shape_med.numer) ? 0 : 1;
+__u8 sym_q    = (flow->fwd_pkts    * sym_med.denom   < flow->bwd_pkts     * sym_med.numer)   ? 0 : 1;
+__u8 pkt_cv_q = (flow->pkt_len_std * cv_med.denom    < flow->pkt_len_mean * cv_med.numer)    ? 0 : 1;
+```
+
+### 抽樣注意事項
+- IF 訓練：`get_normal_sample_from_files`（BENIGN only，30,000 筆）
+- 跨資料集驗證：各攻擊類型最多 5,000 筆（`load_ids2018` + `sample`）
+- IDS2018 欄位名與 DDoS2019 不同（如 `Packet Length Min` vs `Min Packet Length`），需維護獨立的欄位映射 dict
