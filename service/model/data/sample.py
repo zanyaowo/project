@@ -171,6 +171,80 @@ def get_binary_sample_from_files(
     return pl.concat([_cap(benign_chunks), _cap(attack_chunks)])
 
 
+def get_mixed_normal_sample(
+        sources: list[dict],
+        n_per_source: int = 10000,
+        common_cols: list[str] | None = None,
+        seed: int = 42,
+) -> pl.DataFrame:
+    """多來源 BENIGN 混合抽樣，用於跨資料集邊界計算。
+
+    sources 每個元素為 dict，支援以下 key：
+        paths        : list[str]  —— parquet 路徑列表（必填）
+        label_col    : str        —— label 欄位名稱（預設 "Label"）
+        normal_label : str        —— 正常樣本的 label 值（預設 "BENIGN"）
+        post_transform: Callable[[pl.DataFrame], pl.DataFrame] | None
+                                  —— collect 後套用的欄位轉換（如 BigFlow 欄位映射）
+
+    common_cols: 最終輸出保留的欄位名稱列表（None = 自動取交集）
+
+    範例：
+        sources = [
+            {"paths": cic_paths},
+            {"paths": bigflow_paths,
+             "label_col": "Attack",
+             "normal_label": "Benign",
+             "post_transform": add_bigflow_features},
+        ]
+        df = get_mixed_normal_sample(sources, n_per_source=10000,
+                                     common_cols=RUN17_FEATURE_COLS)
+    """
+    if not sources:
+        raise ValueError("sources 不能為空")
+
+    chunks: list[pl.DataFrame] = []
+    for src in sources:
+        paths        = src["paths"]
+        label_col    = src.get("label_col", "Label")
+        normal_label = src.get("normal_label", "BENIGN")
+        post_tf      = src.get("post_transform", None)
+
+        result: list[pl.DataFrame] = []
+        count = 0
+        for path in paths:
+            lf = pl.scan_parquet(path).filter(pl.col(label_col) == normal_label)
+            df = lf.collect()
+            if len(df) == 0:
+                continue
+            if post_tf is not None:
+                df = post_tf(df)
+            take = min(len(df), n_per_source - count)
+            result.append(df.sample(take, seed=seed))
+            count += take
+            del df
+            if count >= n_per_source:
+                break
+
+        if not result:
+            continue
+        chunks.append(pl.concat(result))
+
+    if not chunks:
+        raise ValueError("所有 sources 均無法取得 BENIGN 資料")
+
+    # 欄位對齊：取交集或指定 common_cols
+    if common_cols is not None:
+        aligned = [df.select([c for c in common_cols if c in df.columns])
+                   for df in chunks]
+    else:
+        shared = set(chunks[0].columns)
+        for df in chunks[1:]:
+            shared &= set(df.columns)
+        aligned = [df.select(sorted(shared)) for df in chunks]
+
+    return pl.concat(aligned)
+
+
 if __name__ == "__main__":
     import os
     _base = os.path.dirname(os.path.dirname(__file__))

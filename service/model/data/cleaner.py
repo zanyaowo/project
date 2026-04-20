@@ -51,7 +51,11 @@ def _fill_nulls(lf: pl.LazyFrame) -> pl.LazyFrame:
         for c in num_cols
     ])
 
+
+
+
 def _cast_types(lf: pl.LazyFrame) -> pl.LazyFrame:
+    """cast specific column to Float64"""
     schema_names = lf.collect_schema().names()
     if "Unnamed: 0" in schema_names:
         lf = lf.drop("Unnamed: 0")
