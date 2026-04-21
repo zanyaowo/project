@@ -30,8 +30,18 @@
   - [Run 15 — log1p 轉換（DDoS2019=0.9198，HOIC 仍失敗）](#run-15--2026-04-05log1p-轉換效果驗證)
   - [Run 16 — 整合特徵（DDoS2019=0.9114，HOIC 仍失敗）](#run-16--2026-04-05整合特徵3-個絕對值--3-個比例)
   - [Run 17 — 分位桶整數化 N=2（全面超越浮點基準：HOIC=0.9934）](#run-17--2026-04-05分位數整數化比率特徵ebpf-kernel-可行性)
+  - [Run 18 — Bytes_Sum 增益驗證（無正向增益，維持 Run 17）](#run-18--2026-04-17bytes_sum-增益驗證)
+  - [Run 19 — 混合 BENIGN 訓練（CIC + BigFlow，Mixed N=2 三邊平衡）](#run-19--2026-04-17混合-benign-訓練cic--bigflow)
+  - [附錄：正確時序最終結果彙整（2026-04-10 全面重跑）](#附錄正確時序最終結果彙整2026-04-10-全面重跑)
+  - [Run 20 — 移除 Shape_q 影響評估（有真實貢獻，不可直接移除）](#run-20--2026-04-18移除-shape_q-影響評估)
+  - [Run 21 — Shape_Ratio 替代特徵（原始模型，FwdMax_ratio 勝出）](#run-21--2026-04-18shape_ratio-替代特徵原始模型-auc)
+  - [Run 22 — FwdMax_q vs Shape_q N 值掃描（純 CIC 下 Shape_q 仍較優）](#run-22--2026-04-18fwdmax_q-vs-shape_qn-值掃描)
+  - [Run 23 — BigFlow OOD 驗證（兩者均嚴重 overfit）](#run-23--2026-04-18bigflow-ood-驗證shape_q-vs-fwdmax_q-overfitting-檢查)
+  - [Run 24 — 混合 BENIGN × N 掃描（FwdMax_q Mixed N=2 反轉勝出）](#run-24--2026-04-18混合-benign-訓練shape_q-vs-fwdmax_q--n-值掃描)
+- [最終特徵決策（2026-04-18）](#最終特徵決策2026-04-18)
+  - [Run 25 — 最終方案確認（FwdMax_q Mixed N=2，DDoS2019=0.8888）](#run-25--2026-04-18最終方案確認fwdmax_q--mixed-benign--n-值掃描)
+  - [Run 26 — 擴充指標評估（AUC-ROC / AUC-PR / TPR@FPR）](#run-26--2026-04-18擴充指標評估auc-roc--auc-pr--tprfpr)
 - [待確認](#待確認)
-- [附錄：最終結果彙整](#附錄正確時序最終結果彙整2026-04-10-全面重跑)
 
 ---
 
