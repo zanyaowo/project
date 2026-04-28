@@ -503,7 +503,42 @@ entropy_log_table_size = 256
 
 ---
 
-## 12. 驗證計劃
+## 12. 分位桶切割方法（Quantile Bucket Cut Methods）
+
+> **目前使用**: Equal-Frequency（N=2 時即 p50 中位數切割）  
+> **狀態**: 日後探討，記錄於此供未來實驗參考
+
+### 12.1 方法總覽
+
+| # | 方法 | 切點邏輯 | 優點 | 缺點 | 適用場景 |
+|---|------|---------|------|------|---------|
+| 1 | Equal-Frequency | 每桶樣本數相同（p50 for N=2） | 簡單穩定、對離群值魯棒 | 切點不一定在分佈密度變化處 | 通用場景、首選基線 |
+| 2 | Equal-Width | 等間距切割 `(max-min)/N` | 直覺、實作最簡 | 受離群值嚴重影響、桶分佈極不均 | 特徵分佈接近均勻時 |
+| 3 | Optimal Threshold | 最大化 IF score 差異的切點（如 Youden's J） | 直接對齊異常偵測目標 | 需要 label 或 IF score 作為 proxy | 有明確異常/正常分群 |
+| 4 | IF Score-Driven | 在 IF 的 per-feature 分數 g_j(x) 上找拐點 | 捕捉 IF 內部的非線性轉折 | 依賴 IF 模型品質、計算較複雜 | IF 蒸餾專用 |
+| 5 | Decision Tree Split | 用深度-1 決策樹找最佳分割點 | 有理論基礎（Gini/Entropy） | 對 N=2 等價於 Optimal Threshold | 多桶場景 |
+| 6 | KDE Valley | Kernel Density Estimation 找密度谷點 | 在多模態分佈中找自然分界 | 需調 bandwidth、不保證找到 N-1 個谷 | 已知多模態特徵 |
+
+### 12.2 目前選擇：Equal-Frequency
+
+Python 模型端的 `compute_quantile_boundaries()` 使用 `np.quantile` 計算等頻分位點。N=2 時只有一個切點即 p50（中位數），將樣本均分為兩半。
+
+選擇原因：
+- **穩定性**: 不受離群值影響，適合網路流量的長尾分佈
+- **無需額外依賴**: 不需要 IF score 或 label 資訊
+- **實驗驗證**: N=2 + equal-frequency 在當前資料集上 AUC 表現已足夠
+
+### 12.3 未來探討方向
+
+1. **Optimal Threshold (方法 3)**: 對每個特徵分別計算 IF score，找使正常/異常分群最分離的切點。預期能提升 N=2 的表達力，但需要 IF score 作為 proxy label。
+
+2. **IF Score-Driven (方法 4)**: 計算 per-feature partial dependence `g_j(x_j)`，在曲線的最大曲率變化處切割。理論上最能保留 IF 的決策邊界，但實作複雜度較高。
+
+3. **混合策略**: 不同特徵使用不同切割方法。例如 Protocol（離散值）用 equal-frequency，Pkt_CV（連續值）用 optimal threshold。
+
+---
+
+## 13. 驗證計劃
 
 | 測試項目 | 方法 | 通過標準 |
 |---------|------|---------|
