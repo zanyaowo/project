@@ -17,9 +17,11 @@ use aya_ebpf::{
     programs::XdpContext,
 };
 use aya_ebpf::bindings::{TC_ACT_OK, TC_ACT_UNSPEC, TC_ACT_SHOT};
+use aya_ebpf::bindings::xdp_action::XDP_PASS;
 use aya_ebpf::programs::TcContext;
 use firewall_common::constants::{TCP_FLAG_ACK, TCP_FLAG_SYN};
 use firewall_common::protocol::L4Info;
+use firewall_common::session::SessionKey;
 use crate::parser::{parse_packet, PacketInfo};
 use crate::table::{update_session, SessionUpdateParams};
 
@@ -79,9 +81,21 @@ fn try_xdp_firewall(ctx: XdpContext) -> Result<u32, ()> {
     }
 
     let params = SessionUpdateParams::from(&pkt);
-    update_session(&params);
+    let session = update_session(&params);
 
-    collector::submit_event(&params);
+    let mut score = 0i32;
+    if let Some(session_value) = session {
+        let key = SessionKey::from(&params);
+        if let Some(result) = scorer::score_session(session_value, key){
+            score = result.score;
+
+            if result.action == xdp_action::XDP_DROP {
+                return Ok(xdp_action::XDP_DROP);
+            }
+        }
+    }
+
+    collector::submit_event(&params, score);
 
     Ok(xdp_action::XDP_PASS)
 }

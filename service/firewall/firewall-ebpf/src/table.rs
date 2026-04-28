@@ -47,6 +47,19 @@ impl From<&PacketInfo> for SessionUpdateParams {
     }
 }
 
+impl From<&SessionUpdateParams> for SessionKey {
+    fn from(params: &SessionUpdateParams) -> Self {
+        SessionKey{
+            src_ip: params.src_ip,
+            dst_ip: params.dst_ip,
+            src_port: params.src_port,
+            dst_port: params.dst_port,
+            proto: params.proto,
+            _padding: [0; 3],
+        }
+    }
+}
+
 fn is_connection_closed(flag: u8) -> bool{
     if (flag & TCP_FLAG_RST != 0) || (flag & TCP_FLAG_FIN != 0){
         return true;
@@ -84,8 +97,8 @@ pub fn update_session(params: &SessionUpdateParams) -> Option<SessionValue> {
             (*session).flag = params.flag;
             (*session).is_close = is_connection_closed(params.flag);
 
-            if((*session).min_pkt_len > params.len as u32){
-                (*session).min_pkt_len = params.len as u32;
+            if((*session).max_pkt_len < params.len as u32){
+                (*session).max_pkt_len = params.len as u32;
             }
 
             Some(*session)
@@ -98,8 +111,8 @@ pub fn update_session(params: &SessionUpdateParams) -> Option<SessionValue> {
             (*session).flag = params.flag;
             (*session).is_close = is_connection_closed(params.flag);
 
-            if((*session).min_pkt_len > params.len as u32){
-                (*session).min_pkt_len = params.len as u32;
+            if((*session).max_pkt_len < params.len as u32){
+                (*session).max_pkt_len = params.len as u32;
             }
 
             Some(*session)
@@ -114,7 +127,7 @@ pub fn update_session(params: &SessionUpdateParams) -> Option<SessionValue> {
                 resp_bytes: 0,
                 resp_pkts: 0,
                 pkt_sum_sq: params.len * params.len,
-                min_pkt_len: params.len as u32,
+                max_pkt_len: params.len as u32,
                 start_ts: bpf_ktime_get_ns(),
                 last_seen_ts: bpf_ktime_get_ns(),
                 flag: params.flag,

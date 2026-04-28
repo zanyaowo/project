@@ -17,16 +17,10 @@ static mut DROP_EVENTS: PerCpuArray<u64> = PerCpuArray::with_max_entries(1, 0);
 // Updated signature to take raw values instead of Ipv4Hdr struct
 // This avoids the need to reconstruct the struct in main.rs
 pub fn submit_event(
-    session_update_params: &SessionUpdateParams
+    session_update_params: &SessionUpdateParams,
+    score: i32
 ) {
-    let key: SessionKey = SessionKey {
-        src_ip: session_update_params.src_ip,
-        dst_ip: session_update_params.dst_ip,
-        src_port: session_update_params.src_port,
-        dst_port: session_update_params.dst_port,
-        proto: session_update_params.proto,
-        _padding: [0; 3],
-    };
+    let key: SessionKey = SessionKey::from(session_update_params);
 
     unsafe {
         let current_time = bpf_ktime_get_ns();
@@ -37,6 +31,7 @@ pub fn submit_event(
             (*event).timestamp = current_time;
             (*event).len = session_update_params.len as u16;
             (*event).flag = session_update_params.flag;
+            (*event).score = score;
             events.submit(0);
         }else{
             if let Some(mut counter) = DROP_EVENTS.get_ptr_mut(0) {
