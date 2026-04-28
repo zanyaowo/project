@@ -3,12 +3,15 @@ use std::fs;
 use std::path::Path;
 use log::Level;
 use std::sync::Arc;
+use firewall_common::model::ModelConfig;
+
 #[derive(Deserialize, Clone, Debug)]
 pub struct Config{
-    pub network_config: NetworkConfig,
-    pub security_config: SecurityConfig,
-    pub log_config: LogConfig,
-    pub maps_config: MapsConfig
+    pub network: NetworkConfig,
+    pub security: SecurityConfig,
+    pub log: LogConfig,
+    pub maps: MapsConfig,
+    pub model: ModelSetting
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -20,7 +23,7 @@ pub enum XdpMode {
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct NetworkConfig{
-    pub iface: String,
+    pub interface: String,
     pub enable_xdp: bool,
     pub enable_tc: bool,
     pub xdp_mode: XdpMode,
@@ -45,6 +48,14 @@ pub struct MapsConfig{
     pub event_ring_buffer_size: u32,
 }
 
+#[derive(Deserialize, Clone, Debug)]
+pub struct ModelSetting{
+    pub enabled: bool,
+    pub model_file: String,
+    pub action: String,
+    pub hot_reload: bool,
+}
+
 impl Config{
     pub fn from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self>{
         let contents = fs::read_to_string(path)?;
@@ -54,26 +65,32 @@ impl Config{
 
     pub fn default() -> Self{
         Self{
-            network_config: NetworkConfig {
-                iface: "lo".to_string(),
+            network: NetworkConfig {
+                interface: "lo".to_string(),
                 enable_tc: true,
                 enable_xdp: true,
                 xdp_mode: XdpMode::Skb,
             },
-            security_config: SecurityConfig {
+            security: SecurityConfig {
                 enable_random_secret: true,
                 custom_cookie: None,
             },
 
-            log_config: LogConfig {
+            log: LogConfig {
                 log_level: Level::Info.to_string(),
                 enable_session_log: false,
             },
-            maps_config: MapsConfig {
+            maps: MapsConfig {
                 block_list_size: 1024,
                 session_table_size: 65536,
                 event_ring_buffer_size: 4096,
             },
+            model: ModelSetting{
+                enabled: true,
+                model_file: "model.json".to_string(),
+                action: "log".to_string(),
+                hot_reload: false,
+            }
         }
     }
 

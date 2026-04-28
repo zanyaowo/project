@@ -23,11 +23,11 @@ impl FirewallController{
         )?;
 
         // set secret key
-        if(config.security_config.enable_random_secret){
+        if(config.security.enable_random_secret){
             let secret = rand::random::<u32>();
             secret_map.set(0, secret, 0)?;
         }else{
-            let secret = config.security_config.custom_cookie.unwrap_or_else(rand::random);
+            let secret = config.security.custom_cookie.unwrap_or_else(rand::random);
             secret_map.set(0, secret, 0)?;
         }
 
@@ -45,7 +45,7 @@ impl FirewallController{
 
         xdp_program.load().context("failed to load xdp program")?;
 
-        match self.config.network_config.xdp_mode {
+        match self.config.network.xdp_mode {
             XdpMode::Native => xdp_program.attach(iface, XdpFlags::DRV_MODE),
             XdpMode::Skb => xdp_program.attach(iface, XdpFlags::SKB_MODE),
         }.context("failed to attach ebpf program")?;
