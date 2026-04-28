@@ -45,7 +45,7 @@ pub struct SessionValue {
 
     // 封包資訊
     pub pkt_sum_sq: u64,
-    pub min_pkt_len: u32,
+    pub max_pkt_len: u32,
 
     // 連線狀態和padding
     pub score: i32,
