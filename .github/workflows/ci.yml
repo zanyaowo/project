@@ -1,0 +1,91 @@
+name: ci
+
+on:
+  push:
+    branches: [main, feat/**]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Job 1: 格式檢查（最快，先跑）
+  fmt:
+    name: Format check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+      - run: cargo fmt --manifest-path service/firewall/Cargo.toml --all -- --check
+
+  # Job 2: Clippy lint
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: service/firewall
+      - run: cargo clippy --manifest-path service/firewall/Cargo.toml --package firewall --all-features -- -D warnings
+
+  # Job 3: 編譯 eBPF bytecode（交叉編譯）
+  build-ebpf:
+    name: Build eBPF
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: bpfel-unknown-none
+          components: rust-src
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: service/firewall
+      - run: |
+          cd service/firewall
+          cargo build --package firewall-ebpf \
+            --target bpfel-unknown-none \
+            -Z build-std=core \
+            --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firewall-ebpf
+          path: service/firewall/target/bpfel-unknown-none/release/firewall-ebpf
+
+  # Job 4: 編譯 userspace（依賴 eBPF artifact）
+  build:
+    name: Build userspace
+    runs-on: ubuntu-latest
+    needs: build-ebpf
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: service/firewall
+      - uses: actions/download-artifact@v4
+        with:
+          name: firewall-ebpf
+          path: service/firewall/target/bpfel-unknown-none/release/
+      - run: |
+          cd service/firewall
+          FIREWALL_BPF=$(pwd)/target/bpfel-unknown-none/release/firewall-ebpf \
+          cargo build --package firewall --release
+
+  # Job 5: 安全性漏洞掃描
+  audit:
+    name: Security audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          working-directory: service/firewall

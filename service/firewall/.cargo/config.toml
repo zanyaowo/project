@@ -1,1 +1,2 @@
-
+[target.bpfel-unknown-none]
+linker = "bpf-linker"
