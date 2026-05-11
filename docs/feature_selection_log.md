@@ -1906,3 +1906,157 @@ fwdmax_q = ratio_quantile(flow->fwd_pkt_max, flow->fwd_pkt_mean, &fwdmax_bounds,
 FwdMax_q Mixed N=2 在 DDoS2019 的實際偵測能力（AUC-PR、TPR@FPR）幾乎不遜於 Shape_q CIC；BigFlow 的 AUC-PR 改善真實，但低 FPR 閾值下的 TPR 退化需要在 Userspace 校正閾值（而非依賴預設 contamination=0.01）。
 
 **執行腳本：** `service/model/experiments/run26_extended_metrics.py`
+
+---
+
+## 附錄：概念說明與問題記錄
+
+*原始來源：`problem/model_sampling_and_feature_selection.md`（已整合）*
+
+---
+
+### A-1. Isolation Forest 的抽樣問題
+
+`get_balance_sample_from_files`（每個 label 等量抽樣）不適合用在 Isolation Forest 訓練。
+
+**原因：**
+- IF 的核心假設是「異常是少數」，balanced sampling 破壞了這個假設
+- IF 訓練時根本不看 label，用 label 來平衡抽樣是矛盾的
+
+**結論：** IF 只需要 BENIGN 資料訓練，讓它學「正常長什麼樣」。
+
+---
+
+### A-2. 三個抽樣函式的設計
+
+| 函式 | 用途 |
+|------|------|
+| `get_balance_sample_from_files` | 保留，但目前無明確使用場景 |
+| `get_normal_sample_from_files` | IF 訓練用，只取 BENIGN |
+| `get_binary_sample_from_files` | Feature selection 用，BENIGN N 筆 vs 攻擊合計 N 筆 |
+
+**修正的 bugs（`sample.py`）：**
+- `normal_label = "BEGIN"` → 應為 `"BENIGN"`
+- `transform` 拼成 `transfrom`（靜默失效）
+- `df.sample(n, ...)` → 應為 `df.sample(take, ...)`（超出目標數量）
+- `get_normal_sample_from_files` 缺少 `if count >= n: break`（無法提早結束）
+
+**`get_binary_sample_from_files` 設計重點：** 攻擊側逐檔抽樣（每檔最多 `n_per_class` 筆），合併後再裁剪，確保各攻擊類型都有代表性。
+
+---
+
+### A-3. CIC-IDS 2019 資料集分布
+
+```
+TFTP          20,082,580
+Syn            6,473,789
+MSSQL          5,787,453
+DrDoS_SNMP     5,159,870
+DrDoS_DNS      5,071,011
+...
+Portmap          186,960
+BENIGN           113,828   ← 正常流量反而最少
+UDPLag             1,873
+WebDDoS              439
+總計：70,427,637 筆
+```
+
+**注意：** BENIGN 只有 113,828 筆，`get_normal_sample_from_files` 的 `n` 上限約為 110k。
+
+---
+
+### A-4. Feature Selection 的樣本不平衡問題
+
+原本用 `get_balance_sample_from_files` 做 feature selection，轉成 binary 後 BENIGN 僅 5,000 筆而攻擊合計 ~82,000 筆，RF 學到的是「哪類攻擊最多」而非「正常 vs 攻擊的差異」。
+
+**解法：** 改用 `get_binary_sample_from_files`，真正的 50/50（BENIGN 5,000 vs 攻擊合計 5,000）。
+
+---
+
+### A-5. Permutation Importance 的相關性問題
+
+當特徵之間高度相關（如 `Flow Bytes/s` 和 `Subflow Bwd Bytes`），permutation importance 會把重要性分散到相關特徵群，導致每個特徵的 importance 都偏低。
+
+**解法：** 在跑 permutation importance 前先做相關性篩選（`_drop_correlated`），移除冗餘欄位。
+
+---
+
+### A-6. 相關性篩選的兩種策略
+
+| 策略 | 做法 | 缺點 |
+|------|------|------|
+| 保留先出現的 | 掃上三角，後出現的移除 | 結果受欄位順序影響 |
+| 保留「最獨立」的 | 每輪移除高相關對數最多的特徵 | 略複雜，但更合理 |
+
+**「最獨立」策略的演算法：**
+
+```
+每一輪：
+1. 計算剩餘特徵的相關矩陣（sub-matrix）
+2. 統計每個特徵與其他特徵相關 > threshold 的數量（counts）
+3. 移除 counts 最高的特徵（平手時移除平均相關係數最高的）
+4. 重複直到沒有高相關對
+```
+
+移除高相關對數最多的特徵是一次解決最多冗餘的貪心策略。平均相關係數只作為相同對數時的 tiebreaker。
+
+---
+
+### A-7. `Inbound` 造成 data leakage
+
+`Inbound` 幾乎只有 1，與攻擊 label 高度對應，RF 直接靠它分類，導致其他特徵 permutation importance 趨近 0。
+
+**解法：**
+```python
+X_df = df.select(pl.col(pl.Float64, pl.Int64, pl.Int32, pl.Float32).exclude("Inbound"))
+```
+
+---
+
+### A-8. `Source Port` 不是模型特徵
+
+`Source Port` 在 CIC-IDS 2019 中充當攻擊類型的網路識別符（不同攻擊使用不同來源埠），而非流量行為特徵。使用它等同於 label leakage。
+
+---
+
+### A-9. 排除樣本過少的 label
+
+CIC-IDS 2019 中 UDPLag（1,873 筆）與 WebDDoS（439 筆）樣本極少。
+
+**解法：** `get_balance_sample_from_files` 新增 `min_samples` 參數，低於門檻的 label 自動跳過：
+
+```python
+df = get_balance_sample_from_files(paths, min_samples=2000)
+# 跳過 'WebDDoS'：總筆數 439 < min_samples 2000
+# 跳過 'UDPLag'：總筆數 1873 < min_samples 2000
+```
+
+---
+
+### A-10. 無量綱比例特徵的跨環境優勢
+
+絕對值特徵隨環境（MTU、速率、延遲）改變，比例特徵（dimensionless ratio）只依賴流量的相對結構，對分布偏移天生更穩健。
+
+**三個核心比例特徵（Run 11）：**
+
+| 特徵 | 公式 | 鑑別力 |
+|------|------|------|
+| `Shape_Ratio` | `Min_Pkt / Fwd_Pkt_Mean` | LOIC-UDP 的 min=max=1，形狀完全不同（**後被 FwdMax_q 取代**）|
+| `Sym_Ratio` | `Fwd_Pkts / Bwd_Pkts` | LOIC-UDP 無回應（Bwd≈0），Sym_Ratio 極大 |
+| `Pkt_CV` | `Pkt_Len_Std / Pkt_Len_Mean` | DDoS 封包長度往往更均一（CV 低）|
+
+---
+
+### A-11. N=2 為何反而優於更大 N
+
+N=2 只用一條邊界（BENIGN 中位數），每個特徵變成二元值（0 = 低於中位數，1 = 高於）。這種硬正規化將兩個不同 BENIGN 環境的分布強制對齊同一個 {0, 1} 空間，**消除了 distribution shift 的影響**。N 越大、分辨力越細，反而引入更多跨環境分布差異的雜訊。
+
+Run 25 N 值掃描確認此結論：N=2 平均 AUC 0.8097 > N=4 0.7967 > N=8 0.7911。
+
+---
+
+### A-12. 跨資料集分位桶邊界的環境依賴性
+
+以 CIC-IDS BENIGN 計算的 N=2 邊界在 BigFlow 上 AUC 倒置（< 0.4）。根本原因是兩個環境的 BENIGN 流量統計特性截然不同（BigFlow Shape_Ratio 中位數 1.0 vs CIC 0.32）。
+
+**解法：** 以混合 BENIGN（CIC 15k + BigFlow 15k）計算邊界，Run 24/25 驗證此方案在所有資料集均衡（無嚴重 overfit）。這也確立了「Userspace 動態更新 BPF_MAP 邊界」的架構設計必要性。

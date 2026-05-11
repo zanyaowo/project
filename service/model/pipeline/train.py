@@ -72,7 +72,10 @@ def run(args: argparse.Namespace) -> None:
 def _extra_kwargs(args: argparse.Namespace) -> dict:
     """依模型類型傳入額外參數。"""
     if args.model_type == "if":
-        return {"contamination": args.contamination}
+        kwargs: dict = {"contamination": args.contamination}
+        if args.feature_cols:
+            kwargs["feature_cols"] = args.feature_cols
+        return kwargs
     return {}
 
 
@@ -98,6 +101,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--sample_count", type=int, default=10000, help="抽樣筆數（IF: 總筆數；RF: 每 label）")
     p.add_argument("--contamination", type=float, default=0.01, help="IF 用：預期異常比例")
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--feature-cols", nargs="+", default=None, dest="feature_cols",
+                   help="IF 用：覆寫訓練特徵欄位（預設由 schema.FEATURE_COLS 決定）")
     return p.parse_args()
 
 

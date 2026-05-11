@@ -10,7 +10,6 @@ FEATURE_COLS = [
     "Bwd Header Length",
     "Packet Length Mean",
     "Bwd IAT Min",
-    "Min Packet Length",
     "Fwd Packet Length Min",
     "Down/Up Ratio",
     "Fwd Packet Length Max",

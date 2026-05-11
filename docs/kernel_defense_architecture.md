@@ -332,3 +332,121 @@ Kernel 即時生效，無需重新載入 eBPF 程式
 - [ ] 熵值計算的定點數精度是否足夠區分正常流量與攻擊流量？
 - [ ] 線性蒸餾（`S = Σ w_j × q_j`，q_j 為分位桶索引）AUC 是否優於純閾值比對？
 - [ ] LOIC-HTTP 偵測：應用層特徵（HTTP method、URL 長度）是否可在 TC hook 解析？
+
+---
+
+## 蒸餾策略分析
+
+針對 Isolation Forest（IF）的 eBPF kernel-side 蒸餾，評估了六種常見策略：
+
+| 策略 | Per-feature 非線性 | 特徵交互 | Kernel 計算量 | 精度預期 |
+|------|:------------------:|:--------:|:------------:|:--------:|
+| 1. 分位桶閾值比對 | O | X | O(d) 比較 | 中 |
+| 2. 線性加權評分 | X | 部分 | O(d) 乘加 | 低~中 |
+| 3. 分位桶 + 線性加權 | O | 部分 | O(d+N) | 中 |
+| 4. 淺層決策樹 | O | O | O(depth) | 中~高 |
+| **5. 分位桶 + 查表法** | **O** | **O（全組合）** | **O(d) + O(1)** | **高** |
+| 6. 分段線性近似 | O | X | O(K*d) | 中~高 |
+
+### IF 特性對策略選擇的影響
+
+IF 的核心機制是**逐特徵隨機分裂**，異常分數本質上是各特徵邊際貢獻的加法模型：
+
+```
+S(x) ≈ Σ g_j(x_j)    ← 每個特徵的邊際貢獻（非線性）
+```
+
+這意味著：
+- **「無法捕捉特徵交互」對 IF 蒸餾幾乎不是問題** — IF 本身就不依賴強交互
+- **真正的分界線是能否捕捉 per-feature 非線性** — 路徑長度與特徵值的關係是非線性的
+- 策略 4、5 的「交互優勢」大幅貶值，策略 2 的「無非線性」仍是硬傷
+
+### 當前選擇（2026-04-28 確立）
+
+採用**策略 5（分位桶 N=2 + 查表法）**：5 個特徵共 2^5 = 32 種桶組合，userspace 預先計算每種組合的 IF 分數，存入 `SCORE_TABLE[32]`；kernel 端只做 5 次邊界比較 + 1 次陣列查表。
+
+**優勢：**
+- 能捕捉特徵交互（例如「Sym_q=1 且 Pkt_CV_q=0」的組合分數可獨立設定）
+- kernel 只需整數比較 + 索引計算，計算量 O(d) + O(1)
+- 不需儲存 IF 樹節點，整個推論只有 5 次比較 + 1 次查表
+
+**BPF_MAP 結構：**
+```c
+// 5 個特徵各 1 個邊界（N=2 中位數）→ 3 個 ARRAY map（比率特徵）
+// 1 個 SCORE_TABLE ARRAY，32 個 entries（2^5 種組合）
+struct { __uint(type, BPF_MAP_TYPE_ARRAY); __uint(max_entries, 32); ... } SCORE_TABLE;
+
+// kernel 端評分
+__u32 bucket_idx = (fwdmax_q << 4) | (sym_q << 3) | (pkt_cv_q << 2)
+                 | (proto_bucket << 1) | mean_bucket;
+__s32 *score = bpf_map_lookup_elem(&SCORE_TABLE, &bucket_idx);
+if (score && *score > THRESHOLD) return XDP_DROP;
+```
+
+> **早期設計（2026-04-13）曾選擇策略 3（N=16 + 線性加權），但 Run 25 確認 N=2 全面優於 N≥4，且查表法比線性加權能捕捉特徵交互。現已棄用 N=16 + 線性加權方案。**
+
+---
+
+## 分位桶切割方法
+
+> **目前使用**: Equal-Frequency（N=2 時即 p50 中位數切割）  
+> **狀態**: 日後探討，記錄於此供未來實驗參考
+
+### 方法總覽
+
+| # | 方法 | 切點邏輯 | 優點 | 缺點 | 適用場景 |
+|---|------|---------|------|------|---------|
+| 1 | Equal-Frequency | 每桶樣本數相同（p50 for N=2） | 簡單穩定、對離群值魯棒 | 切點不一定在分佈密度變化處 | 通用場景、首選基線 |
+| 2 | Equal-Width | 等間距切割 `(max-min)/N` | 直覺、實作最簡 | 受離群值嚴重影響、桶分佈極不均 | 特徵分佈接近均勻時 |
+| 3 | Optimal Threshold | 最大化 IF score 差異的切點（如 Youden's J） | 直接對齊異常偵測目標 | 需要 label 或 IF score 作為 proxy | 有明確異常/正常分群 |
+| 4 | IF Score-Driven | 在 IF 的 per-feature 分數 g_j(x) 上找拐點 | 捕捉 IF 內部的非線性轉折 | 依賴 IF 模型品質、計算較複雜 | IF 蒸餾專用 |
+| 5 | Decision Tree Split | 用深度-1 決策樹找最佳分割點 | 有理論基礎（Gini/Entropy） | 對 N=2 等價於 Optimal Threshold | 多桶場景 |
+| 6 | KDE Valley | Kernel Density Estimation 找密度谷點 | 在多模態分佈中找自然分界 | 需調 bandwidth、不保證找到 N-1 個谷 | 已知多模態特徵 |
+
+### 目前選擇：Equal-Frequency
+
+Python 模型端的 `compute_quantile_boundaries()` 使用 `np.quantile` 計算等頻分位點。N=2 時只有一個切點即 p50（中位數），將樣本均分為兩半。
+
+選擇原因：
+- **穩定性**: 不受離群值影響，適合網路流量的長尾分佈
+- **無需額外依賴**: 不需要 IF score 或 label 資訊
+- **實驗驗證**: N=2 + equal-frequency 在當前資料集上 AUC 表現已足夠
+
+### 未來探討方向
+
+1. **Optimal Threshold（方法 3）**: 對每個特徵分別計算 IF score，找使正常/異常分群最分離的切點。預期能提升 N=2 的表達力，但需要 IF score 作為 proxy label。
+
+2. **IF Score-Driven（方法 4）**: 計算 per-feature partial dependence `g_j(x_j)`，在曲線的最大曲率變化處切割。理論上最能保留 IF 的決策邊界，但實作複雜度較高。
+
+3. **混合策略**: 不同特徵使用不同切割方法。例如 Protocol（離散值）用 equal-frequency，Pkt_CV（連續值）用 optimal threshold。
+
+---
+
+## 驗證計劃
+
+| 測試項目 | 方法 | 通過標準 |
+|---------|------|---------|
+| Verifier 通過 | `FirewallController::load()` 成功 | 無 verifier error |
+| 模型禁用回退 | `MODEL_CONFIG.enabled=0`，送流量 | 所有封包 PASS，無效能退化 |
+| 已知模型評分 | 載入固定邊界，送已知特徵的合成封包 | kernel 分位桶索引與 Python 離線計算一致 |
+| 特徵正確性 | 比對 kernel 分位桶索引 vs Python 計算 | 桶索引完全一致 |
+| 效能影響 | 啟用/禁用模型時測量 XDP throughput | 額外開銷 < 5% pps 下降 |
+| 熱更新正確性 | 運行中更換模型檔 | 新舊模型切換無封包丟失（log-only 模式） |
+
+---
+
+## 開發時序記錄
+
+| 日期 | 事項 |
+|------|------|
+| 2026-02-13 | TC egress 流量紀錄開發 |
+| 2026-02-20 | 新增 ICMP 協議解析 |
+| 2026-04-13 | kernel_inference_design v1.0：N=16 分位桶 + 線性加權方案（後被 Run 25 推翻） |
+| 2026-04-18 | Run 25 確立最終方案：N=2 + FwdMax_q + Mixed BENIGN |
+| 2026-04-28 | 架構轉向：改為 N=2 + 32 entry score table；Shape_Ratio → FwdMax_q |
+
+**已知問題（待處理）：**
+- `proto_h` 欄位的 Feature hashing 值（16）過小，Protocol 為 u8（256），容易碰撞
+- IPv6 支援尚未實作（XDP 目前直接丟棄 IPv6 封包）
+- `syn_cookie` ACK 驗證已實作但邏輯待審查
+- `logger.rs` 內舊的 `ModelFeature` 建構邏輯可清理

@@ -1,333 +1,350 @@
-# Isolation Forest (iTree) 訓練實現報告
+# Isolation Forest 訓練報告
 
-## 概述
-
-本報告詳細說明 `service/model` 目錄下 Isolation Forest (iTree) 異常檢測模型的訓練實現流程、特徵工程及相關技術細節。
-
-## 系統架構
-
-系統包含以下核心模組:
-
-- **build_features.py**: 特徵工程模組
-- **train_if.py**: 模型訓練模組
-- **infer_if.py**: 模型推論模組
-- **utils.py**: 共用工具函數
-- **rule_baseline.py**: 規則基線比較模組
-
-## 資料流程
-
-```
-Zeek Conn.log (TSV)
-    ↓
-build_features.py (特徵提取)
-    ↓
-conn_features.csv
-    ↓
-train_if.py (模型訓練)
-    ↓
-if_model.joblib
-    ↓
-infer_if.py (異常偵測)
-    ↓
-alerts_if.csv
-```
-
-## 特徵工程詳解
-
-### 輸入資料格式
-
-來源: Zeek `conn.log` (使用 `zeek-cut` 提取的 TSV 格式)
-
-**原始欄位** (build_features.py:11-14):
-- `ts`: 時間戳記
-- `uid`: 連線唯一識別碼
-- `src`: 來源 IP
-- `sport`: 來源埠號
-- `dst`: 目的 IP
-- `dport`: 目的埠號
-- `proto`: 協定類型
-- `service`: 服務類型
-- `duration`: 連線持續時間
-- `orig_bytes`: 發送端位元組數
-- `resp_bytes`: 接收端位元組數
-- `orig_ip_bytes`: 發送端 IP 層位元組數
-- `resp_ip_bytes`: 接收端 IP 層位元組數
-- `orig_pkts`: 發送端封包數
-- `resp_pkts`: 接收端封包數
-- `history`: 連線狀態歷史
-
-### 特徵轉換
-
-#### 1. 數值型特徵正規化 (utils.py:12-15)
-
-將以下欄位轉換為數值型態，無法轉換的值填充為 0.0:
-```python
-NUM_COLS = [
-    "duration", "orig_bytes", "resp_bytes", "orig_ip_bytes", "resp_ip_bytes",
-    "orig_pkts", "resp_pkts"
-]
-```
-
-#### 2. 類別型特徵雜湊編碼 (utils.py:17-18, 24-25)
-
-使用雜湊桶 (Hash Bucket) 技術處理類別型欄位:
-- `proto_h`: 協定雜湊值 (mod 16)
-- `service_h`: 服務雜湊值 (mod 128)
-
-```python
-HASH_PROTO_MOD = 16
-HASH_SERVICE_MOD = 128
-```
-
-**優點**: 避免高基數類別特徵造成的維度爆炸，同時保留部分區分性。
-
-#### 3. 衍生特徵 (utils.py:27-35)
-
-| 特徵名稱 | 計算公式 | 說明 |
-|---------|---------|------|
-| `history_len` | `len(history)` | 連線狀態歷史字串長度 |
-| `bytes_sum` | `orig_bytes + resp_bytes` | 總傳輸位元組數 |
-| `pkts_sum` | `orig_pkts + resp_pkts` | 總封包數 |
-| `bytes_ratio` | `orig_bytes / resp_bytes` | 位元組比率 (防除零) |
-| `pkts_ratio` | `orig_pkts / resp_pkts` | 封包比率 (防除零) |
-| `bps_approx` | `bytes_sum / duration` | 近似頻寬 (Bytes per Second) |
-
-**特殊處理**:
-- `bytes_ratio` 和 `pkts_ratio`: 當分母為 0 時，比率設為 0
-- `bps_approx`: 當 `duration ≤ 0` 時，直接使用 `bytes_sum`
-
-### 最終特徵集 (utils.py:44-48)
-
-**共 15 個特徵**用於訓練 Isolation Forest:
-
-```python
-FEATURE_COLS = [
-    "duration",          # 持續時間
-    "orig_bytes",        # 發送端位元組
-    "resp_bytes",        # 接收端位元組
-    "orig_ip_bytes",     # 發送端 IP 位元組
-    "resp_ip_bytes",     # 接收端 IP 位元組
-    "orig_pkts",         # 發送端封包數
-    "resp_pkts",         # 接收端封包數
-    "history_len",       # 歷史長度
-    "bytes_sum",         # 總位元組數
-    "pkts_sum",          # 總封包數
-    "bytes_ratio",       # 位元組比率
-    "pkts_ratio",        # 封包比率
-    "bps_approx",        # 近似頻寬
-    "proto_h",           # 協定雜湊
-    "service_h"          # 服務雜湊
-]
-```
-
-## 模型訓練流程
-
-### 訓練腳本: train_if.py
-
-#### 1. 命令列參數 (train_if.py:10-15)
-
-| 參數 | 型別 | 預設值 | 說明 |
-|-----|------|--------|------|
-| `--input` | str | 必填 | 輸入特徵檔案 (conn_features.csv) |
-| `--model` | str | if_model.joblib | 輸出模型檔案路徑 |
-| `--alert_rate` | float | 0.005 | 預期異常比例 (0.5%) |
-| `--trees` | int | 300 | Isolation Forest 樹的數量 |
-
-#### 2. 資料前處理 (train_if.py:17-21)
-
-```python
-df = pd.read_csv(args.input)
-X = df[FEATURE_COLS].replace([np.inf, -np.inf], np.nan).fillna(0.0).values
-scaler = StandardScaler()
-Xn = scaler.fit_transform(X)
-```
-
-**處理步驟**:
-1. 讀取特徵 CSV
-2. 選取 15 個訓練特徵
-3. 處理無限值: `inf` 和 `-inf` 替換為 `NaN`，再填充為 `0.0`
-4. **標準化**: 使用 `StandardScaler` 進行 Z-score 正規化
-
-#### 3. Isolation Forest 訓練 (train_if.py:23-29)
-
-```python
-model = IsolationForest(
-    n_estimators=args.trees,         # 樹的數量 (預設 300)
-    contamination=args.alert_rate,   # 預期異常比例 (預設 0.005)
-    random_state=42,                 # 隨機種子確保可重現性
-    n_jobs=-1,                       # 使用所有 CPU 核心
-)
-model.fit(Xn)
-```
-
-**關鍵參數說明**:
-- **n_estimators**: 決策樹數量，越多越穩定但訓練時間越長
-- **contamination**: 影響內部異常分數閾值估計，但不直接決定最終閾值
-- **random_state=42**: 確保結果可重現
-
-#### 4. 閾值計算 (train_if.py:31-32)
-
-```python
-scores = -model.score_samples(Xn)  # 值越大越可疑
-thr = float(np.quantile(scores, 1.0 - args.alert_rate))
-```
-
-**計算邏輯**:
-- Isolation Forest 原始分數越小越異常
-- 取負號後，**分數越大表示越可疑**
-- 閾值 = (1 - alert_rate) 分位數
-  - 例如 alert_rate=0.005 → 取 99.5% 分位數
-  - 超過此閾值的樣本被標記為異常
-
-#### 5. 模型保存 (train_if.py:34-40)
-
-```python
-meta = {
-    "feature_cols": FEATURE_COLS,
-    "threshold": thr,
-    "alert_rate": args.alert_rate,
-}
-dump({"scaler": scaler, "model": model, "meta": meta}, args.model)
-```
-
-**保存內容**:
-- `scaler`: StandardScaler 物件 (用於推論時的標準化)
-- `model`: 訓練好的 IsolationForest 模型
-- `meta`: 元資料 (特徵欄位、閾值、警報率)
-
-## 模型推論流程
-
-### 推論腳本: infer_if.py
-
-#### 1. 命令列參數 (infer_if.py:8-13)
-
-| 參數 | 型別 | 預設值 | 說明 |
-|-----|------|--------|------|
-| `--input` | str | 必填 | 特徵檔案 (conn_features.csv) |
-| `--model` | str | 必填 | 模型檔案 (if_model.joblib) |
-| `--output` | str | alerts_if.csv | 輸出警報檔案 |
-| `--override_threshold` | float | None | 覆寫預設閾值 (可選) |
-
-#### 2. 載入模型與計算分數 (infer_if.py:15-26)
-
-```python
-bundle = load(args.model)
-scaler = bundle["scaler"]
-model = bundle["model"]
-meta = bundle.get("meta", {})
-
-df = pd.read_csv(args.input)
-X = df[FEATURE_COLS].replace([np.inf, -np.inf], np.nan).fillna(0.0).values
-Xn = scaler.transform(X)  # 使用訓練時的 scaler
-scores = -model.score_samples(Xn)
-df["anomaly_score"] = scores
-```
-
-#### 3. 異常判定 (infer_if.py:28-34)
-
-```python
-thr = args.override_threshold if args.override_threshold is not None else meta.get("threshold", None)
-
-if thr is None:
-    thr = float(np.quantile(scores, 0.995))  # 保底: 99.5% 分位數
-
-df["is_alert"] = df["anomaly_score"] > thr
-```
-
-#### 4. 警報輸出 (infer_if.py:33-37)
-
-輸出欄位:
-- `ts`: 時間戳記
-- `src`, `sport`, `dst`, `dport`: 連線五元組
-- `anomaly_score`: 異常分數
-- `bytes_sum`, `pkts_sum`, `bps_approx`, `bytes_ratio`: 關鍵特徵
-
-依 `anomaly_score` 降序排列，僅保留 `is_alert=True` 的紀錄。
-
-## 規則基線比較 (rule_baseline.py)
-
-### 規則評分邏輯 (rule_baseline.py:4-15)
-
-```python
-def score_rule(row):
-    s = 0
-    # 規則 1: 單向小封包洪流
-    if row["bytes_sum"] < 400 and row["pkts_sum"] > 20:
-        s += 2
-    # 規則 2: 非典型服務 + 高連線速度
-    if (str(row.get("service","")) in {"-","unknown",""}) and row["bps_approx"] > 1e6:
-        s += 1
-    # 規則 3: 流量極度不對稱
-    if row["bytes_ratio"] > 20 or row["bytes_ratio"] < 0.05:
-        s += 1
-    return s
-```
-
-**警報條件**: `rule_score >= 2`
-
-**用途**: 作為機器學習模型的基線對照，評估 Isolation Forest 的效能提升。
-
-## 技術要點總結
-
-### 優點
-
-1. **無監督學習**: 不需要標記資料即可訓練
-2. **特徵工程完整**: 涵蓋流量統計、比率、頻寬等多維度特徵
-3. **可擴展性**: 使用 joblib 平行化，支援大規模資料
-4. **可解釋性**: 保存完整元資料，方便追溯與調整閾值
-
-### 關鍵技術
-
-1. **雜湊編碼**: 處理高基數類別特徵 (proto, service)
-2. **標準化**: Z-score 正規化確保不同尺度特徵的公平性
-3. **動態閾值**: 基於分位數計算，適應不同資料分佈
-4. **分數反轉**: `-score_samples()` 使高分代表高風險，符合直覺
-
-### 注意事項
-
-1. **防除零**: `bytes_ratio` 和 `pkts_ratio` 計算時需檢查分母
-2. **無限值處理**: 訓練與推論都需一致處理 `inf` 值
-3. **Scaler 一致性**: 推論時必須使用訓練時的 StandardScaler
-4. **閾值選擇**: 可透過 `--override_threshold` 調整敏感度
-
-## 使用範例
-
-### 完整訓練與推論流程
-
-```bash
-# 步驟 1: 從 Zeek conn.log 提取特徵
-python build_features.py \
-    --input conn.tsv \
-    --output conn_features.csv
-
-# 步驟 2: 訓練 Isolation Forest 模型
-python train_if.py \
-    --input conn_features.csv \
-    --model if_model.joblib \
-    --alert_rate 0.005 \
-    --trees 300
-
-# 步驟 3: 進行異常偵測
-python infer_if.py \
-    --input conn_features.csv \
-    --model if_model.joblib \
-    --output alerts_if.csv
-
-# (可選) 步驟 4: 執行規則基線比較
-python rule_baseline.py \
-    --input conn_features.csv \
-    --output alerts_rule.csv
-```
-
-## 相關檔案
-
-- `service/model/train_if.py` - 主要訓練邏輯
-- `service/model/build_features.py` - 特徵提取流程
-- `service/model/utils.py:44-48` - 特徵欄位定義
-- `service/model/infer_if.py` - 推論與警報產生
-- `service/model/rule_baseline.py` - 規則基線實現
+**最後更新：2026-05-03**  
+**對應版本：feat/model_develope（Run 25 最終方案）**
 
 ---
 
-**報告生成日期**: 2025-12-21
-**分析版本**: 基於 commit fd79630
+## 系統概覽
+
+Python ML pipeline 位於 `service/model/`，提供兩條推論路徑：
+
+| 路徑 | 特徵數 | 執行位置 | 用途 |
+|------|:------:|---------|------|
+| **Full IF** | 25 個（`FEATURE_COLS`）| Python userspace | 邊緣案例、高精度判斷（Run 07 基準 AUC=0.9257）|
+| **Distilled** | 5 個（分位桶） | eBPF kernel（+ Python 驗證）| 大流量快速過濾（Run 25 AUC 見架構文件）|
+
+---
+
+## 資料流
+
+```
+CICFlowMeter CSV / parquet
+        ↓
+   data/loader.py
+   clean_and_save()          ← 預處理一次，寫入 parquet_clean/
+        ↓
+   parquet_clean/
+   ├── train/   (03-11, 2018-11-03)   ← 訓練集
+   └── test/    (01-12, 2018-12-01)   ← 驗證集（含 BigFlow）
+        ↓
+   pipeline/feature_select.py         ← 特徵選擇（更新 FEATURE_COLS 時執行）
+        ↓
+   schema.py  FEATURE_COLS            ← 唯一特徵定義來源（25 個）
+        ↓
+   pipeline/train.py                  ← Full IF 訓練（edge cases）
+        ↓
+   model_store/if_model.joblib        ← Full IF 推論用
+        ↓
+   pipeline/infer.py                  ← Full IF 推論
+
+   pipeline/distill_export.py         ← Bucket IF 訓練 + 邊界計算（kernel 用）
+        ↓
+   model_store/distilled_rules.json   ← score_table + quantile_bounds
+        ↓
+   pipeline/distill.py                ← Distilled 推論（eBPF 對齊驗證）
+```
+
+**時序限制（違反即為資料洩漏）：** Train = 03-11（較早）→ Test = 01-12（較晚）。
+
+---
+
+## 模組說明
+
+### schema.py — 常數唯一來源
+
+```python
+FEATURE_COLS  # 25 個訓練特徵（固定順序，與 Rust ModelFeature struct 對應）
+ID_COLS       # 不可入模型的識別符（Flow ID、IP、Timestamp、Label 等）
+STRING_TO_FLOAT_COLS  # ["Flow Bytes/s", "Flow Packets/s"]（需從字串 cast）
+CLIP_UPPER_PERCENTILE = 0.999  # inf cap 的百分位數
+```
+
+**禁止**在其他模組硬編碼特徵名稱，一律 `from service.model.schema import FEATURE_COLS`。
+
+**當前 25 個 FEATURE_COLS（Run 07 基準，移除 Min Packet Length）：**
+
+| # | 特徵名稱 | # | 特徵名稱 |
+|:-:|---------|:-:|---------|
+| 1 | Destination Port | 14 | Flow IAT Max |
+| 2 | Fwd Packet Length Mean | 15 | Flow IAT Std |
+| 3 | Bwd Header Length | 16 | Flow Duration |
+| 4 | Packet Length Mean | 17 | Flow Bytes/s |
+| 5 | Bwd IAT Min | 18 | Fwd Header Length |
+| 6 | Fwd Packet Length Min | 19 | Init_Win_bytes_forward |
+| 7 | Down/Up Ratio | 20 | Init_Win_bytes_backward |
+| 8 | Fwd Packet Length Max | 21 | Bwd Packets/s |
+| 9 | Bwd IAT Mean | 22 | Fwd IAT Mean |
+| 10 | Total Length of Fwd Packets | 23 | Total Fwd Packets |
+| 11 | Flow IAT Mean | 24 | Flow IAT Min |
+| 12 | Flow Packets/s | 25 | act_data_pkt_fwd |
+| 13 | Protocol | | |
+
+---
+
+### data/cleaner.py
+
+**公開函式：** `clean(lf: LazyFrame) → LazyFrame`
+
+執行順序：
+1. `_strip_column_names` — 欄位名稱去空白
+2. `_cast_types` — `STRING_TO_FLOAT_COLS` 轉 Float64；移除 `Unnamed: 0`
+3. `_cap_infinite` — inf 以非 inf 最大值的 p99.9 替換（保留高流量語意）
+4. `_fill_nulls` — NaN/null 填 0.0
+
+**使用限制：** `clean_and_save()` 產出的 `parquet_clean/` 已預處理，**不可再呼叫 clean()**。
+
+---
+
+### data/loader.py
+
+| 函式 | 用途 |
+|------|------|
+| `_load_features_parquet(path)` | 載入單一 parquet（或 glob）為 LazyFrame |
+| `csv_to_parquet()` | 批次將 `dataset/` 下 CSV 轉 parquet |
+| `clean_and_save(src_dir, out_dir)` | 清洗 parquet → 寫入 `parquet_clean/` |
+
+---
+
+### data/sample.py — 抽樣函式（三選一，用途嚴格區分）
+
+| 函式 | 適用場景 | 禁止用於 |
+|------|---------|---------|
+| `get_normal_sample_from_files(paths, n, seed)` | **IF 訓練**（BENIGN only） | 任何需要攻擊樣本的場景 |
+| `get_binary_sample_from_files(paths, n_per_class, seed)` | 特徵選擇（50/50 BENIGN vs 攻擊） | IF 訓練 |
+| `get_balance_sample_from_files(paths, sample_count_per_label, seed)` | 評估/測試（各 label 等量） | IF 訓練 |
+| `random_sample_lazyframe(lf, n, seed)` | 從已有 LazyFrame 隨機抽樣 | — |
+
+---
+
+### data/features.py
+
+`build_features(df: pd.DataFrame) → pd.DataFrame`
+
+計算 BigFlow 等需要衍生的比率特徵（FwdMax_ratio、Sym_ratio、Pkt_CV 等）和 Protocol/Service 編碼，用於非 CICFlowMeter 格式資料的欄位對齊。
+
+---
+
+### pipeline/feature_select.py
+
+| 函式 | 說明 |
+|------|------|
+| `variance_select(benign_df, var_threshold, corr_threshold)` | 方案 B：BENIGN variance filter + correlation filter，回傳存活特徵清單 |
+| `if_auc_validate(benign_df, val_df, feature_names, ...)` | 方案 D：訓練 IF，在含攻擊驗證集上計算 AUC-ROC |
+| `_numeric_matrix(df)` | 取出非 ID 數值欄位（排除 `Inbound`） |
+
+**CLI：**
+```bash
+python -m service.model.pipeline.feature_select \
+    --data_dir service/model/dataset/parquet_clean/train \
+    --val_dir  service/model/dataset/parquet_clean/test \
+    --var_threshold 1e-4 --corr_threshold 0.9 \
+    --sample_n 10000 --val_sample_n 3000
+```
+
+---
+
+### pipeline/trainer/if_.py — IsolationForestTrainer
+
+```python
+class IsolationForestTrainer(BaseTrainer):
+    def fit(self, df: pl.DataFrame) -> None: ...
+    # df 應為 BENIGN-only（由 train.py 用 get_normal_sample_from_files 傳入）
+    # anomaly_score = -model.score_samples(X)，值越大越可疑
+    # threshold = quantile(train_scores, 1 - contamination)
+
+    def score(self, df: pl.DataFrame) -> tuple[np.ndarray, np.ndarray]: ...
+    # 回傳 (anomaly_scores, is_alert)
+
+    def bundle(self) -> dict: ...
+    # 回傳 {"model_type": "if", "scaler", "model", "meta": {"feature_cols", "threshold", "contamination"}}
+```
+
+**關鍵參數：**
+
+| 參數 | 預設值 | 說明 |
+|------|:------:|------|
+| `n_estimators` | 200 | 樹的數量 |
+| `contamination` | 0.01 | 預期異常比例；影響 threshold 分位數（1 − contamination）|
+| `seed` | 42 | 確保可重現 |
+
+---
+
+### pipeline/train.py — 訓練 CLI
+
+```bash
+# IF 訓練（預設）
+python -m service.model.pipeline.train \
+    --model_type if \
+    --data_dir   service/model/dataset/parquet_clean/train \
+    --sample_count 10000 \
+    --n_estimators 200 \
+    --contamination 0.01
+
+# 輸出：model_store/if_model.joblib
+```
+
+**訓練流程：**
+1. `get_normal_sample_from_files(paths, n=sample_count)` — BENIGN only
+2. `IsolationForestTrainer.fit(df)` — StandardScaler + IsolationForest
+3. `trainer.save(output)` — joblib 序列化
+
+---
+
+### pipeline/infer.py — Full IF 推論
+
+```bash
+python -m service.model.pipeline.infer \
+    --input  service/model/dataset/parquet_clean/test/some.parquet \
+    --model  service/model/model_store/if_model.joblib \
+    --output alerts.parquet \
+    --report                  # 若輸入有 Label 欄，印 classification report
+    --sample_n 50000          # 大型檔案避免 OOM
+```
+
+**輸出欄位：** 原始欄位 + `anomaly_score`（float32）+ `is_alert`（bool），依 `anomaly_score` 降序排列，只保留 `is_alert=True`。
+
+---
+
+### pipeline/distill.py — 蒸餾推論（eBPF 對齊）
+
+實現 Run 25 確立的 5 特徵分位桶 + 查表法推論，作為 eBPF kernel 的 Python 側驗證：
+
+```python
+class DistilledClassifier:
+    # 從蒸餾 JSON 載入 32-entry SCORE_TABLE
+    # 5 個特徵各與中位數邊界比較得 1 bit
+    # 5 bits → 0–31 索引 → SCORE_TABLE[idx] >= threshold 即告警
+
+    @classmethod
+    def from_json(cls, path) -> "DistilledClassifier": ...
+    def score(self, df: pl.DataFrame) -> np.ndarray: ...       # 回傳整數分數
+    def predict(self, df: pl.DataFrame) -> pl.DataFrame: ...   # 附加 distill_score / is_alert
+    def summary(self) -> None: ...                              # 印出 32 種組合的分數表
+```
+
+**蒸餾特徵定義：**
+
+| 特徵鍵 | 分子欄位 | 分母欄位 | 說明 |
+|--------|---------|---------|------|
+| `fwd_max_q` | `Fwd Packet Length Max` | `Fwd Packet Length Mean` | 前向大小頂端離散度 |
+| `sym_ratio` | `Total Fwd Packets` | `Total Bwd Packets` | 方向對稱性 |
+| `pkt_cv` | `Packet Length Std` | `Packet Length Mean` | 封包大小 CV |
+| `protocol` | `Protocol` | — | 協定號 |
+| `pkt_len_mean` | `Packet Length Mean` | — | 平均封包大小 |
+
+**蒸餾 JSON 格式：**
+```json
+{
+  "threshold": 42,
+  "quantile_bounds": [
+    {"name": "fwd_max_q",    "type": "ratio",    "numer": 1048575, "denom": 1048576},
+    {"name": "sym_ratio",    "type": "ratio",    "numer": ..., "denom": ...},
+    {"name": "pkt_cv",       "type": "ratio",    "numer": ..., "denom": ...},
+    {"name": "protocol",     "type": "absolute", "value": 6},
+    {"name": "pkt_len_mean", "type": "absolute", "value": 100}
+  ],
+  "score_table": [0, 5, 10, 20, 8, 30, 40, 50, ...]
+}
+```
+
+> **注意：** `quantile_bounds` 中的邊界必須以 **Mixed BENIGN**（CIC 15k + BigFlow 15k）計算；`score_table` 由 userspace 從訓練好的 IF 蒸餾（Python 端離線計算各組合的平均 IF anomaly_score）。
+
+**CLI：**
+```bash
+python -m service.model.pipeline.distill \
+    --rules model_store/distilled_rules.json \
+    --data  dataset/parquet_clean/test/ddos.parquet \
+    --sample 5000
+```
+
+---
+
+## 完整使用範例
+
+```bash
+# ─────── 一次性前置作業 ───────
+# 1. CSV → parquet
+uv run --project service/model \
+    python -m service.model.data.loader csv_to_parquet
+
+# 2. 清洗 → parquet_clean/
+uv run --project service/model \
+    python -m service.model.data.loader clean_and_save \
+        --src_dir service/model/dataset/parquet \
+        --out_dir service/model/dataset/parquet_clean
+
+# ─────── 特徵選擇（FEATURE_COLS 更新時執行）───────
+# 3. 特徵選擇（輸出更新 schema.py 的 FEATURE_COLS）
+uv run --project service/model \
+    python -m service.model.pipeline.feature_select \
+        --data_dir service/model/dataset/parquet_clean/train \
+        --val_dir  service/model/dataset/parquet_clean/test
+
+# ─────── IF 訓練 ───────
+# 4. 訓練 IsolationForest（BENIGN only）
+uv run --project service/model \
+    python -m service.model.pipeline.train \
+        --model_type if \
+        --data_dir service/model/dataset/parquet_clean/train \
+        --sample_count 10000
+
+# ─────── 推論 ───────
+# 5a. Full IF 推論
+uv run --project service/model \
+    python -m service.model.pipeline.infer \
+        --input  service/model/dataset/parquet_clean/test/ddos.parquet \
+        --model  service/model/model_store/if_model.joblib \
+        --output alerts_if.parquet \
+        --report
+
+# 5b. Distilled（eBPF 對齊）推論
+uv run --project service/model \
+    python -m service.model.pipeline.distill \
+        --rules service/model/model_store/distilled_rules.json \
+        --data  service/model/dataset/parquet_clean/test/ddos.parquet \
+        --sample 5000
+```
+
+---
+
+## 模型 Bundle 格式（joblib）
+
+```python
+{
+    "model_type": "if",
+    "scaler":  StandardScaler,         # 訓練時 fit，推論時 transform（不可重新 fit）
+    "model":   IsolationForest,        # 200 棵樹，random_state=42
+    "meta": {
+        "feature_cols":  list[str],    # 26 個特徵名（與 FEATURE_COLS 一致）
+        "threshold":     float,        # anomaly_score 超過此值即告警
+        "contamination": float,        # 訓練時的 contamination 參數（預設 0.01）
+    }
+}
+```
+
+---
+
+## 關鍵技術決策摘要
+
+| 決策 | 說明 |
+|------|------|
+| **BENIGN-only 訓練** | IF 核心假設是「異常是少數」，balanced sampling 破壞此假設 |
+| **StandardScaler** | Z-score 正規化，確保不同尺度特徵公平對待；推論時必須用同一個 scaler |
+| **inf 替換而非刪除** | `Flow Bytes/s` 在 duration=0 時為 inf，代表極高速流量，是 DDoS 判斷依據 |
+| **anomaly_score = -score_samples()** | 原始 IF score 越小越異常；取負後越大越可疑，符合直覺 |
+| **threshold = quantile(1 - contamination)** | 基於訓練集分位數，適應不同資料分布；可透過 `--override_threshold` 在推論時覆寫 |
+| **Mixed BENIGN 邊界** | 蒸餾模型的分位桶邊界必須以 CIC+BigFlow 混合 BENIGN 計算，純 CIC 邊界對 BigFlow 嚴重 overfit |
+| **5 特徵查表法** | 2^5=32 種組合預先計算分數存入 SCORE_TABLE；kernel 端只需 5 次比較 + 1 次查表 |
+
+---
+
+## 相關文件
+
+| 文件 | 內容 |
+|------|------|
+| `docs/kernel_defense_architecture.md` | eBPF 架構、分位桶決策、AUC 數字、蒸餾策略 |
+| `docs/feature_selection_log.md` | Run 01–26 特徵選擇實驗記錄 + 概念說明附錄 |
+| `docs/claude_ref/codebase_map.md` | 函式導覽、資料夾用途、抽樣方法選擇 |
+| `docs/claude_ref/dev_commands.md` | 常用命令、驗證 checklist、資料路徑 |
+| `docs/claude_ref/failure_records.md` | 歷史失敗案例 |

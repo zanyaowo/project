@@ -2,6 +2,40 @@
 
 生成日期: 2026-02-21
 
+---
+
+## 品質審查摘要（2026-02-21 / 更新至 2026-02-27）
+
+*原始報告：`code_quality_review_2026-02-21.md`（已整合）*
+
+**初次審查（2026-02-21）：** 36 個問題（🔴 9 嚴重 / 🟡 14 重要 / 🟢 13 次要）  
+**修復狀態（2026-02-27）：** 13/47 已修復（新增 11 個問題，含 3 個嚴重）
+
+### 已修復的關鍵問題
+
+| # | 問題 | 修復位置 |
+|---|------|---------|
+| ✅ | SYN Cookie ACK 驗證未完成 | `firewall-ebpf/src/main.rs:63-75` |
+| ✅ | SECRET_KEY 可能未初始化 | `firewall/src/lib/controller.rs:17-21` |
+| ✅ | Magic Numbers 遍佈程式碼 | `firewall-common/src/constants.rs` |
+| ✅ | L4 解析錯誤被掩蓋（unwrap_or Unknown）| `parser.rs:163-177` |
+| ✅ | 重複的 TCP 關閉檢測邏輯 | `table.rs:52-57` |
+| ✅ | 事件提交失敗被靜默忽略 | `collector.rs:13-14`（新增 DROP_EVENTS）|
+| ✅ | 配置系統（硬編碼介面名稱等）| `config.rs`（TOML 配置檔）|
+
+### 仍待處理的關鍵問題（2026-02-27）
+
+| # | 問題 | 位置 | 嚴重度 |
+|---|------|------|--------|
+| ❌ | RingBuf 讀取缺少大小驗證 | `logger.rs:34` | 🔴 |
+| ❌ | Per-CPU Map 查詢邏輯可能錯誤 | `main.rs:52-53`（使用 expect）| 🔴 |
+| ❌ | 非窮舉 match 導致 panic | `controller.rs:48-51`（xdp_mode 非法值）| 🔴 |
+| ❌ | Unsafe 程式碼缺少安全性註解 | `main.rs`, `syn_cookie.rs`, `parser.rs`, `table.rs` | 🟡 |
+| ❌ | IPv6 支援未實作 | `parser.rs:157-159` | 🟢 |
+| ❌ | ModelFeature 結構未實際使用 | `firewall-common/src/lib.rs:4-21` | 🟢 |
+
+---
+
 ## 當前功能分析
 
 ### 已實現的功能

@@ -20,10 +20,12 @@ class IsolationForestTrainer(BaseTrainer):
         n_estimators: int = 200,
         contamination: float = 0.01,
         seed: int = 42,
+        feature_cols: list[str] | None = None,
     ) -> None:
         self.n_estimators = n_estimators
         self.contamination = contamination
         self.seed = seed
+        self._forced_feature_cols = feature_cols
 
         self._scaler: StandardScaler | None = None
         self._model: IsolationForest | None = None
@@ -36,7 +38,11 @@ class IsolationForestTrainer(BaseTrainer):
         """
         df 應為 BENIGN-only 資料（由 train.py 用 get_normal_sample_from_files 傳入）。
         """
-        self._feature_cols = self.resolve_feature_cols(df)
+        self._feature_cols = (
+            [c for c in self._forced_feature_cols if c in df.columns]
+            if self._forced_feature_cols is not None
+            else self.resolve_feature_cols(df)
+        )
         print(f"      特徵數：{len(self._feature_cols)}")
 
         X = df.select(self._feature_cols).to_numpy().astype(np.float32)

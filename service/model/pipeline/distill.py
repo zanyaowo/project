@@ -27,11 +27,11 @@ import numpy as np
 import polars as pl
 
 _FEATURE_COLUMN: dict[str, tuple[str, str | None]] = {
+    "protocol": ("Protocol", None),
+    "pkt_len_mean": ("Packet Length Mean", None),
     "fwd_max_q": ("Fwd Packet Length Max", "Fwd Packet Length Mean"),
     "sym_ratio":  ("Total Fwd Packets",     "Total Bwd Packets"),
     "pkt_cv":     ("Packet Length Std",     "Packet Length Mean"),
-    "protocol": ("Protocol", None),
-    "pkt_len_mean": ("Packet Length Mean", None)
 }
 
 class DistilledClassifier:

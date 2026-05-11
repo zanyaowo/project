@@ -2,7 +2,7 @@
 Harness 3 — Inference Engine（Socket-Ready）
 
 測試 _infer_if() 作為 Rust → Python IPC 邊界時的行為：
-- 形狀契約：26 個 float 對應 FEATURE_COLS（文件化 Rust ModelFeature 的契約）
+- 形狀契約：25 個 float 對應 FEATURE_COLS（Rust ModelFeature 已移除，契約轉為 Python 內部）
 - 邊界值：全零、極端大、負值不得 crash
 - 確定性：相同輸入相同 score
 - 一致性：is_alert 嚴格等於 score > threshold
@@ -36,13 +36,13 @@ def _single_row_df(feature_cols: list[str], values: dict | float) -> pl.DataFram
 
 @pytest.mark.harness
 class TestVectorShapeContract:
-    def test_feature_cols_count_is_26(self, feature_cols):
-        """FEATURE_COLS 必須是 26 個——這是 Rust ModelFeature struct 的欄位數契約。
-        若 FEATURE_COLS 變動，Rust 端的 struct 定義也必須同步更新。
+    def test_feature_cols_count_is_25(self, feature_cols):
+        """FEATURE_COLS 必須是 25 個——Run 07 基準移除 Min Packet Length 後的欄位數。
+        若 FEATURE_COLS 變動，請同步更新此斷言並重跑 feature_select 確認 AUC ≥ 0.90。
         """
-        assert len(feature_cols) == 26, (
-            f"FEATURE_COLS 有 {len(feature_cols)} 個，Rust ModelFeature 期望 26。"
-            "請同步更新 firewall-common/src/lib.rs 的 ModelFeature struct。"
+        assert len(feature_cols) == 25, (
+            f"FEATURE_COLS 有 {len(feature_cols)} 個，期望 25。"
+            "若有意修改，請同步更新此斷言並重跑 feature_select。"
         )
 
     def test_infer_accepts_exact_feature_cols_dataframe(

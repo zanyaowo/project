@@ -68,11 +68,11 @@ class TestFeatureColsPresence:
         assert non_numeric == [], f"clean() 後仍為非 numeric：{non_numeric}"
 
     def test_feature_count_matches_run07_baseline(self, feature_cols):
-        """FEATURE_COLS 數量門檻：Run 07 基準為 26 個。
+        """FEATURE_COLS 數量門檻：Run 07 基準移除 Min Packet Length 後為 25 個。
         增減 FEATURE_COLS 後必須更新此斷言並重跑 feature_select。
         """
-        assert len(feature_cols) == 26, (
-            f"FEATURE_COLS 有 {len(feature_cols)} 個，Run 07 基準為 26。"
+        assert len(feature_cols) == 25, (
+            f"FEATURE_COLS 有 {len(feature_cols)} 個，期望 25。"
             "若有意修改，請同步更新此斷言並重跑 feature_select 確認 AUC ≥ 0.90。"
         )
 
