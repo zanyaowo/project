@@ -1,5 +1,3 @@
-
-
 // protocol
 pub const TCP_FLAG_FIN: u8 = 0x01;
 pub const TCP_FLAG_SYN: u8 = 0x02;

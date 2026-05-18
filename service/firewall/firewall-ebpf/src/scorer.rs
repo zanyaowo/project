@@ -1,10 +1,10 @@
-use aya_ebpf::bindings::xdp_action::{XDP_DROP, XDP_PASS};
-use aya_ebpf::maps::Array;
+use aya_ebpf::bindings::xdp_action::XDP_PASS;
 use aya_ebpf::macros::map;
+use aya_ebpf::maps::Array;
 
+use firewall_common::constants::{MODEL_CONFIG_SIZE, QUANTILE_BOUND_SIZE, SCORE_TABLE_SIZE};
 use firewall_common::model::*;
-use firewall_common::session::{SessionKey, SessionValue };
-use firewall_common::constants::*;
+use firewall_common::session::{SessionKey, SessionValue};
 
 // TODO 撰寫map定義以及kernel推論函數
 
@@ -24,9 +24,13 @@ pub fn score_session(session_value: SessionValue, session_key: SessionKey) -> Op
         return None;
     }
 
-    let total_pkts = session_value.orig_pkts + session_value.resp_pkts;
-    let total_bytes = session_value.orig_bytes + session_value.resp_bytes;
-    let total_bytes_squared = total_bytes * total_bytes;
+    let total_pkts = session_value
+        .orig_pkts
+        .saturating_add(session_value.resp_pkts);
+    let total_bytes = session_value
+        .orig_bytes
+        .saturating_add(session_value.resp_bytes);
+    let total_bytes_squared = total_bytes.saturating_mul(total_bytes);
 
     let val_denom: [u64; 5] = {
         [
@@ -34,12 +38,15 @@ pub fn score_session(session_value: SessionValue, session_key: SessionKey) -> Op
             total_pkts,
             session_value.orig_bytes,
             session_value.resp_pkts,
-            total_bytes_squared
+            total_bytes_squared,
         ]
     };
 
-    let max_shape = session_value.max_pkt_len as u64 * session_value.orig_pkts;
-    let cv_numer = session_value.pkt_sum_sq.saturating_mul(total_pkts).saturating_sub(total_bytes_squared);
+    let max_shape = (session_value.max_pkt_len as u64).saturating_mul(session_value.orig_pkts);
+    let cv_numer = session_value
+        .pkt_sum_sq
+        .saturating_mul(total_pkts)
+        .saturating_sub(total_bytes_squared);
 
     let val_numer: [u64; 5] = {
         [
@@ -51,16 +58,32 @@ pub fn score_session(session_value: SessionValue, session_key: SessionKey) -> Op
         ]
     };
 
-    let mut index:u32 = 0x00;
+    let mut index: u32 = 0x00;
 
     for feature_index in 0..FEATURE_COUNT {
-
         let bound = unsafe { QUANTILE_BOUNDS.get(feature_index)? };
 
-        let bit = if feature_index == 0 {
-            if val_numer[feature_index as usize] > bound.value {1u32} else {0u32}
-        }else{
-            if val_numer[feature_index as usize] * bound.denom > bound.numer * val_denom[feature_index as usize] {1u32} else {0u32}
+        let i = feature_index as usize;
+        let bit = if feature_index == FEAT_PROTOCOL {
+            if val_numer[i] > bound.value {
+                1u32
+            } else {
+                0u32
+            }
+        } else if feature_index == FEAT_PACKET_LEN_MEAN {
+            if val_numer[i] > bound.value.saturating_mul(val_denom[i]) {
+                1u32
+            } else {
+                0u32
+            }
+        } else {
+            let lhs = val_numer[i].saturating_mul(bound.denom);
+            let rhs = bound.numer.saturating_mul(val_denom[i]);
+            if lhs > rhs {
+                1u32
+            } else {
+                0u32
+            }
         };
 
         index |= bit << feature_index;
@@ -68,11 +91,14 @@ pub fn score_session(session_value: SessionValue, session_key: SessionKey) -> Op
 
     let score = unsafe { SCORE_TABLE.get(index)? };
 
-    let action = if *score > config.threshold{
+    let action = if *score >= config.threshold {
         config.action
     } else {
         XDP_PASS
     };
 
-    Some(ScoreResult {score: *score, action})
+    Some(ScoreResult {
+        score: *score,
+        action,
+    })
 }

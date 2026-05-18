@@ -2060,3 +2060,142 @@ Run 25 N 值掃描確認此結論：N=2 平均 AUC 0.8097 > N=4 0.7967 > N=8 0.7
 以 CIC-IDS BENIGN 計算的 N=2 邊界在 BigFlow 上 AUC 倒置（< 0.4）。根本原因是兩個環境的 BENIGN 流量統計特性截然不同（BigFlow Shape_Ratio 中位數 1.0 vs CIC 0.32）。
 
 **解法：** 以混合 BENIGN（CIC 15k + BigFlow 15k）計算邊界，Run 24/25 驗證此方案在所有資料集均衡（無嚴重 overfit）。這也確立了「Userspace 動態更新 BPF_MAP 邊界」的架構設計必要性。
+
+
+---
+
+### Run 27 — 2026-05-18（分位桶邊界 overfit 驗證：CIC-only vs BigFlow-only vs Mixed）
+
+**目標：** 驗證 5-feature N=2 distilled model 的 bucket boundaries 是否只貼合某一個 BENIGN 來源，導致跨資料集 benign bucket 分布崩塌或攻擊 AUC 下降。
+
+**設定：** CIC BENIGN 10k + BigFlow BENIGN 10k；每個 eval label 4k；seed=42。IF 訓練資料固定使用 Mixed BENIGN；只改變 boundary source（CIC-only / BigFlow-only / Mixed）。特徵：`FwdMax_q, Sym_q, Pkt_CV_sq, Protocol, Packet Length Mean`。
+
+**執行腳本：** `service/model/experiments/run27_boundary_overfit_check.py`
+
+**[1] AUC（IF train 固定為 Mixed BENIGN，只換 boundary source）：**
+
+| Boundary | DDoS2019 | LOIC-HTTP | HOIC | LOIC-UDP | BigFlow |
+|----------|:--------:|:---------:|:----:|:--------:|:-------:|
+| CIC-only | 0.9044 | 0.5301 | 0.9931 | 0.9976 | 0.1642 |
+| BigFlow-only | 0.8750 | 0.2154 | 0.0008 | 0.9969 | 0.8956 |
+| Mixed | 0.8833 | 0.2647 | 0.0001 | 0.9969 | 0.8754 |
+
+**[2] BENIGN upper-bucket 比例（應接近 0.5 表示邊界對齊）：**
+
+| Boundary | BenignSet | protocol | pkt_len_mean | fwd_max_q | sym_ratio | pkt_cv_sq |
+|----------|-----------|:--------:|:------------:|:---------:|:---------:|:---------:|
+| CIC-only | CIC | 0.216 | 0.515 | 0.502 | 0.500 | 0.503 |
+| CIC-only | BigFlow | 0.040 | 0.540 | **1.000** | 0.717 | **0.974** |
+| CIC-only | Mixed | 0.128 | 0.527 | 0.751 | 0.609 | 0.739 |
+| BigFlow-only | CIC | 0.216 | 0.477 | 0.197 | 0.430 | 0.115 |
+| BigFlow-only | BigFlow | 0.040 | 0.370 | 0.894 | 0.041 | 0.806 |
+| BigFlow-only | Mixed | 0.128 | 0.423 | 0.546 | 0.235 | 0.460 |
+| Mixed | CIC | 0.216 | 0.477 | 0.197 | 0.430 | 0.134 |
+| Mixed | BigFlow | 0.040 | 0.370 | 0.894 | 0.041 | 0.886 |
+| Mixed | Mixed | 0.128 | 0.423 | 0.546 | 0.235 | 0.510 |
+
+**[3] Boundary p50 values：**
+
+| Boundary | proto | mean | fwdmax | sym | cv_sq |
+|----------|------:|-----:|-------:|----:|------:|
+| CIC-only | 6 | 22 | 0.9730 | 0.8235 | 0.2033 |
+| BigFlow-only | 6 | 24 | 1.9130 | 1.0000 | 2.3552 |
+| Mixed | 6 | 24 | 1.9130 | 1.0000 | 1.8820 |
+
+**關鍵結論：**
+
+1. **CIC-only boundary 在 BigFlow 嚴重 overfit（AUC=0.1642）**：BigFlow benign 的 `fwd_max_q` 全部被推到上桶（比例=1.000），`pkt_cv_sq` 比例=0.974，邊界完全不適用於 BigFlow 環境，確認 CLAUDE.md 禁止純 CIC 邊界的依據。
+2. **BigFlow-only boundary 的 HOIC 完全崩潰（AUC=0.0008）**：BigFlow 環境對 HOIC 的 ratio boundary 無鑑別力，且 pkt_cv_sq 的高 median（2.3552）導致 CIC HOIC 流量被錯誤分類。
+3. **Mixed boundary 的 HOIC 同樣崩潰（AUC=0.0001）**：HOIC 的失敗不是 boundary source 問題，而是目前 5-bit contract 本身的限制（Run 28 進一步確認）。
+4. **Mixed boundary 對 BigFlow 的緩解有效**：Mixed AUC=0.8754 對比 CIC-only 0.1642，證明混合邊界是必要的，即使 Mixed benign 的桶比例（fwd_max_q=0.546, sym=0.235）在 BigFlow 子集上仍未達理想的 0.5。
+5. **sym_ratio boundary 在兩種環境間差異最大**：CIC median=0.8235 vs BigFlow/Mixed median=1.0，這個不一致直接影響 sym_ratio 特徵的 upper-bucket 比例（BigFlow 只有 0.041）。
+
+---
+
+### Run 28 — 2026-05-18（contract 對照矩陣：Run25 original vs eBPF 32-entry）
+
+**目標：** 補上 Run 25 實驗模型與目前 kernel/current contract 的等價性檢查。Run 25 的證據模型是 `3 ratio buckets + Protocol raw + Packet Length Mean raw`；目前 current contract 則是 `5-bit all-binary score_table`，兩者不是同一個 model class。
+
+**執行腳本：** `service/model/experiments/run28_contract_matrix.py`
+
+**執行指令：**
+
+```bash
+python -m service.model.experiments.run28_contract_matrix
+```
+
+**設定：** CIC BENIGN 10k + BigFlow BENIGN 10k；每個 eval label 4k；seed=42。Run25-compatible path 保留 Run25 的 BigFlow normalization 與 ratio boundary 行為；current contract path 保留目前 +1 / CV^2 / 5-bit 設定。
+
+**AUC-ROC 結果：**
+
+| Variant | Table | DDoS2019 | LOIC-HTTP | HOIC | LOIC-UDP | BigFlow | Avg |
+|---------|------:|:--------:|:---------:|:----:|:--------:|:-------:|:---:|
+| A_run25_original | IF direct | 0.9028 | 0.5566 | 0.7925 | 0.9961 | 0.9022 | 0.8300 |
+| B_protocol_bit_mean_raw | IF direct | 0.9023 | 0.5132 | 0.0008 | 0.9961 | 0.9079 | 0.6641 |
+| C_larger_table_mean4 | 96 | 0.9046 | 0.4195 | 0.0008 | 0.9961 | 0.9021 | 0.6446 |
+| C_larger_table_mean8 | 192 | 0.9310 | 0.4841 | 0.1797 | 0.9961 | 0.8541 | 0.6890 |
+| D_current_5bit_contract | 32 | 0.8833 | 0.2647 | 0.0001 | 0.9969 | 0.8756 | 0.6041 |
+
+**相對 A_run25_original 的差異：**
+
+| Variant | DDoS2019 | LOIC-HTTP | HOIC | LOIC-UDP | BigFlow | Avg |
+|---------|---------:|----------:|-----:|---------:|--------:|----:|
+| B_protocol_bit_mean_raw | -0.0004 | -0.0434 | -0.7917 | +0.0000 | +0.0057 | -0.1660 |
+| C_larger_table_mean4 | +0.0018 | -0.1371 | -0.7917 | +0.0000 | -0.0001 | -0.1854 |
+| C_larger_table_mean8 | +0.0282 | -0.0725 | -0.6127 | +0.0000 | -0.0481 | -0.1410 |
+| D_current_5bit_contract | -0.0195 | -0.2919 | -0.7923 | +0.0008 | -0.0266 | -0.2259 |
+
+**關鍵結論：**
+
+1. `A_run25_original` 可重現 Run 25 級別的 HOIC 能力（HOIC=0.7925，接近既有 0.8125），因此資料載入與評估框架可用。
+2. `D_current_5bit_contract` 的 HOIC 幾乎歸零（0.0001），確認 32-entry all-binary contract 不能引用 Run 25 的 AUC 作為部署證據。
+3. `B_protocol_bit_mean_raw` 幾乎保留 DDoS2019 / BigFlow，但 HOIC 從 0.7925 掉到 0.0008；這指出 HOIC 的關鍵訊號高度依賴 Protocol raw 的 IF 幾何，不只是 Packet Length Mean raw。
+4. 較大 table 的 `C_larger_table_mean8` 可部分救回 HOIC（0.1797）與提升 DDoS2019（0.9310），但仍遠低於 A，且 BigFlow 有代價。
+5. 下一步不可直接改 kernel；應先重新設計 eBPF-compatible contract，例如 Protocol categorical 的 scoring semantics、Packet Length Mean bucket 數、以及是否允許 userspace score table 擴到 96/192 entries。
+
+---
+
+### Run 29 — 2026-05-18（HOIC-aware feature replacement：init_win_bit 取代 protocol_bit）
+
+**目標：** 在維持 32-entry table 的前提下，尋找能恢復 HOIC AUC 的 protocol_bit 替代特徵。
+
+**前置分析結論：** `Init Fwd Win Bytes / (Init Bwd Win Bytes + 1)` 單特徵 AUC=0.9995（HOIC 攻擊工具廣播極小的 Bwd Window，p50≈1；BENIGN TCP p50≈5）。此特徵是工具行為特徵，不受環境分布偏移影響。BigFlow 為 NetFlow 格式無 TCP handshake 欄位，BigFlow 攻擊為 UDP DDoS，不需此特徵（固定為 0）。
+
+**執行腳本：** `service/model/experiments/run29_hoic_feature_search.py`
+
+**Boundary：** init_win_boundary = 2.5630（CIC BENIGN TCP FwdWin/BwdWin 中位數）
+
+**init_win_bit 分布驗證：**
+
+| 資料集 | Benign mean | Attack mean |
+|--------|:-----------:|:-----------:|
+| DDoS2019 | 0.179 | 0.029 |
+| LOIC-HTTP | 0.312 | 0.499 |
+| HOIC | 0.001 | **0.820** |
+| LOIC-UDP | 0.001 | 0.000 |
+| BigFlow | 0.000 | 0.000 |
+
+**AUC-ROC 結果：**
+
+| Variant | Table | DDoS2019 | LOIC-HTTP | HOIC | LOIC-UDP | BigFlow | Avg |
+|---------|------:|:--------:|:---------:|:----:|:--------:|:-------:|:---:|
+| D_current_5bit | 32 | 0.8830 | 0.2613 | 0.0001 | 0.9969 | 0.8779 | 0.6038 |
+| E1_init_win_r_proto | 32 | 0.7190 | 0.6164 | 0.0057 | 0.0031 | 0.8019 | 0.4292 |
+| E2_init_win_r_mean | 32 | 0.8620 | 0.4816 | 0.0006 | 0.9969 | 0.7478 | 0.6178 |
+| F_6bit_ceiling | 64 | 0.8566 | 0.4636 | 0.0006 | 0.9969 | 0.8727 | 0.6381 |
+| G_4bit_floor | 16 | 0.8397 | 0.4166 | 0.0001 | 0.0039 | 0.8007 | 0.4122 |
+
+**關鍵結論：**
+
+1. **init_win_bit 本身鑑別力正確**（HOIC attack mean=0.820 vs benign=0.001），但 IF 仍無法偵測 HOIC（E1 HOIC=0.0057）。根本原因是**跨資料集 domain shift**：IF 訓練於 CIC 2019 + BigFlow BENIGN，而 IDS2018 D2 的 BENIGN TCP 流量特徵與訓練 BENIGN 差異較大，導致 IF 把 IDS2018 BENIGN 評為比 HOIC 更異常（AUC < 0.5 即倒置現象）。
+
+2. **E1 替換 protocol_bit 後 LOIC-UDP 完全崩潰**（0.0031）：protocol_bit 是 LOIC-UDP 偵測的關鍵維度（UDP protocol=17 > threshold=6）。任何替換方案都必須保留或等價替換此能力。
+
+3. **5-bit all-binary IF 架構本身的限制**：Run 28 A_run25_original（protocol raw + pkt_len_mean raw）可達 HOIC=0.7925；一旦 protocol 被二值化，HOIC 就崩潰（B=0.0008）。連續 protocol 值讓 IF 在幾何空間能區分 TCP 內部的 HOIC 模式；二值化後 32 個可能組合無法承載此幾何分離。
+
+4. **init_win_bit 單特徵鑑別力無法在 IF 框架內發揮**：需要的是「在 IDS2018 BENIGN 與 HOIC 之間有效分離的特徵集合」，而不只是「init_win_bit 的邊際貢獻」。
+
+5. **下一步架構決策（非 feature tuning 問題）**：
+   - 方案 A：接受 eBPF fast path 不偵測 HOIC，由 Userspace 補（init_win_ratio 作為直接規則）
+   - 方案 B：放棄 32-entry all-binary，改用 C_larger_table_mean8（192-entry，HOIC=0.1797）
+   - 方案 C：在 eBPF 層直接實作 `init_win_ratio > threshold → score++` 作為獨立規則，不進 IF score table

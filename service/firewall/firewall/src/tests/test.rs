@@ -1,7 +1,7 @@
-use std::net::Ipv4Addr;
 use anyhow::Result;
 use aya::include_bytes_aligned;
 use aya::maps::HashMap;
+use std::net::Ipv4Addr;
 
 use firewall_common::session::{SessionKey, SessionValue};
 
@@ -17,11 +17,14 @@ pub async fn test_session_tracking() -> Result<()> {
     for i in 0..5 {
         println!("Check {}:", i);
         let mut count = 0;
-        
+
         {
-             let sessions_map = controller.get_mut_map("SESSIONS").expect("SESSIONS map not found");
-             let mut sessions: HashMap<_, SessionKey, SessionValue> = HashMap::try_from(sessions_map)?;
-             for item in sessions.iter() {
+            let sessions_map = controller
+                .get_mut_map("SESSIONS")
+                .expect("SESSIONS map not found");
+            let mut sessions: HashMap<_, SessionKey, SessionValue> =
+                HashMap::try_from(sessions_map)?;
+            for item in sessions.iter() {
                 let (key, value) = item?;
                 println!(
                     "  Session: {} -> {}, Pkts: {}/{}",
@@ -39,7 +42,7 @@ pub async fn test_session_tracking() -> Result<()> {
         }
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
     }
-    
+
     // Add a simple assertion or return Ok(()) to indicate success
     Ok(())
 }

@@ -1,12 +1,14 @@
-use core::mem::size_of;
 use aya_ebpf::programs::{TcContext, XdpContext};
+use core::mem::size_of;
+use firewall_common::constants::{
+    ETH_IPV4, ETH_IPV6, IPPROTO_ICMP, IPPROTO_ICMP_V6, IPPROTO_TCP, IPPROTO_UDP,
+};
+use firewall_common::protocol::{IcmpInfo, L4Info, TcpInfo, UdpInfo};
 use network_types::eth::EthHdr;
 use network_types::icmp::IcmpHdr;
-use network_types::ip::{Ipv4Hdr, IpProto, Ipv6Hdr};
+use network_types::ip::{IpProto, Ipv4Hdr, Ipv6Hdr};
 use network_types::tcp::TcpHdr;
 use network_types::udp::UdpHdr;
-use firewall_common::constants::{IPPROTO_ICMP, IPPROTO_ICMP_V6, IPPROTO_TCP, IPPROTO_UDP ,ETH_IPV4, ETH_IPV6};
-use firewall_common::protocol::{IcmpInfo, L4Info, TcpInfo, UdpInfo};
 pub struct PacketInfo {
     pub src_ip: u32,
     pub dst_ip: u32,
@@ -14,7 +16,7 @@ pub struct PacketInfo {
     pub len: u16,
     pub payload_len: u64,
     pub l4_info: L4Info,
-    pub padding: [u8; 5]
+    pub padding: [u8; 5],
 }
 
 pub trait PacketContext {
@@ -112,18 +114,26 @@ pub fn parse_tcp<C: PacketContext>(ctx: &C, offset: usize) -> Result<TcpInfo, ()
         let tcp_hdr: *const TcpHdr = ptr_at(ctx.data_start(), ctx.data_end(), offset)?;
         let src_port = u16::from_be_bytes((*tcp_hdr).source);
         let dst_port = u16::from_be_bytes((*tcp_hdr).dest);
-        let seq      = u32::from_be_bytes((*tcp_hdr).seq);
-        let ack_seq  = u32::from_be_bytes((*tcp_hdr).ack_seq);
-        let windows  = u16::from_be_bytes((*tcp_hdr).window);
+        let seq = u32::from_be_bytes((*tcp_hdr).seq);
+        let ack_seq = u32::from_be_bytes((*tcp_hdr).ack_seq);
+        let windows = u16::from_be_bytes((*tcp_hdr).window);
 
         let flag_ptr: *const u8 = ptr_at(ctx.data_start(), ctx.data_end(), offset + 13)?;
         let flags: u8 = *flag_ptr;
 
         let offset_byte: u8 = *ptr_at(ctx.data_start(), ctx.data_end(), offset + 12)?;
         let data_offset = (offset_byte & 0xF0) >> 4;
-        let header_len  = (data_offset * 4) as u8;
+        let header_len = (data_offset * 4) as u8;
 
-        Ok(TcpInfo { src_port, dst_port, flags, seq, ack_seq, windows, header_len })
+        Ok(TcpInfo {
+            src_port,
+            dst_port,
+            flags,
+            seq,
+            ack_seq,
+            windows,
+            header_len,
+        })
     }
 }
 
@@ -136,7 +146,12 @@ pub fn parse_udp<C: PacketContext>(ctx: &C, offset: usize) -> Result<UdpInfo, ()
         let dst_port = u16::from_be_bytes((*udp_hdr).dst);
         let header_len = size_of::<UdpHdr>() as u8;
 
-        Ok(UdpInfo { src_port, dst_port, header_len, padding: [0; 3] })
+        Ok(UdpInfo {
+            src_port,
+            dst_port,
+            header_len,
+            padding: [0; 3],
+        })
     }
 }
 
@@ -151,7 +166,7 @@ pub fn parse_icmp<C: PacketContext>(ctx: &C, offset: usize) -> Result<IcmpInfo, 
         let icmp_hdr: *const IcmpHdr = ptr_at(ctx.data_start(), ctx.data_end(), offset)?;
         let icmp_type = (*icmp_hdr).type_;
         let icmp_code = (*icmp_hdr).code;
-        let mut icmp_id  = 0u16;
+        let mut icmp_id = 0u16;
         let mut icmp_seq = 0u16;
 
         if icmp_type == 8 || icmp_type == 0 {
@@ -163,7 +178,14 @@ pub fn parse_icmp<C: PacketContext>(ctx: &C, offset: usize) -> Result<IcmpInfo, 
             }
         }
 
-        Ok(IcmpInfo { icmp_type, icmp_code, icmp_id, icmp_seq, header_len: 8, padding: [0; 1] })
+        Ok(IcmpInfo {
+            icmp_type,
+            icmp_code,
+            icmp_id,
+            icmp_seq,
+            header_len: 8,
+            padding: [0; 1],
+        })
     }
 }
 
@@ -188,10 +210,10 @@ pub fn parse_packet<C: PacketContext>(ctx: &C) -> Result<PacketInfo, ()> {
             };
 
             (src_ip, dst_ip, proto_u8, l4_offset)
-        },
+        }
         ETH_IPV6 => {
-             return Err(());
-        },
+            return Err(());
+        }
         _ => return Err(()),
     };
 

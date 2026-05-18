@@ -1,29 +1,24 @@
 #![no_std]
 #![no_main]
 
-mod collector;
 mod blocker;
-mod table;
+mod collector;
 mod parser;
-mod syn_cookie;
 mod scorer;
+mod syn_cookie;
+mod table;
 
 use core::mem::size_of;
 
-use aya_ebpf::{
-    bindings::xdp_action,
-    macros::xdp,
-    macros::classifier,
-    programs::XdpContext,
-};
-use aya_ebpf::bindings::{TC_ACT_OK, TC_ACT_UNSPEC, TC_ACT_SHOT};
+use crate::parser::{parse_packet, PacketInfo};
+use crate::table::{update_session, SessionUpdateParams};
 use aya_ebpf::bindings::xdp_action::XDP_PASS;
+use aya_ebpf::bindings::{TC_ACT_OK, TC_ACT_SHOT, TC_ACT_UNSPEC};
 use aya_ebpf::programs::TcContext;
+use aya_ebpf::{bindings::xdp_action, macros::classifier, macros::xdp, programs::XdpContext};
 use firewall_common::constants::{TCP_FLAG_ACK, TCP_FLAG_SYN};
 use firewall_common::protocol::L4Info;
 use firewall_common::session::SessionKey;
-use crate::parser::{parse_packet, PacketInfo};
-use crate::table::{update_session, SessionUpdateParams};
 
 #[xdp]
 pub fn xdp_firewall(ctx: XdpContext) -> u32 {
@@ -58,9 +53,9 @@ fn try_xdp_firewall(ctx: XdpContext) -> Result<u32, ()> {
     let pkt: PacketInfo = parse_packet(&ctx)?;
 
     if let L4Info::Tcp(tcp) = pkt.l4_info {
-        if tcp.flags == TCP_FLAG_SYN{
+        if tcp.flags == TCP_FLAG_SYN {
             return Ok(syn_cookie::send_syn_cookie(&ctx)?);
-        }else if tcp.flags == TCP_FLAG_ACK{
+        } else if tcp.flags == TCP_FLAG_ACK {
             let cookie = syn_cookie::calculate_cookie(
                 pkt.src_ip,
                 pkt.dst_ip,
@@ -72,7 +67,6 @@ fn try_xdp_firewall(ctx: XdpContext) -> Result<u32, ()> {
             if cookie != tcp.ack_seq + 1 {
                 return Ok(xdp_action::XDP_DROP);
             }
-
         }
     }
 
@@ -86,7 +80,7 @@ fn try_xdp_firewall(ctx: XdpContext) -> Result<u32, ()> {
     let mut score = 0i32;
     if let Some(session_value) = session {
         let key = SessionKey::from(&params);
-        if let Some(result) = scorer::score_session(session_value, key){
+        if let Some(result) = scorer::score_session(session_value, key) {
             score = result.score;
 
             if result.action == xdp_action::XDP_DROP {

@@ -1,7 +1,4 @@
-use aya_ebpf::{
-    macros::map,
-    maps::HashMap,
-};
+use aya_ebpf::{macros::map, maps::HashMap};
 
 use firewall_common::constants::BLOCK_LIST_SIZE;
 
@@ -9,7 +6,5 @@ use firewall_common::constants::BLOCK_LIST_SIZE;
 static mut BLOCK_LIST: HashMap<u32, u32> = HashMap::with_max_entries(BLOCK_LIST_SIZE, 0);
 
 pub fn is_blocked(ip: u32) -> bool {
-    unsafe {
-        BLOCK_LIST.get(&ip).is_some()
-    }
+    unsafe { BLOCK_LIST.get(&ip).is_some() }
 }

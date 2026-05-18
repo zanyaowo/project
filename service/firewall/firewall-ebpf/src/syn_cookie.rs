@@ -1,14 +1,11 @@
-use core::mem;
-use aya_ebpf::{
-    bindings::{xdp_action},
-    macros::map
-};
+use crate::parser::PacketContext;
 use aya_ebpf::maps::Array;
 use aya_ebpf::programs::XdpContext;
+use aya_ebpf::{bindings::xdp_action, macros::map};
+use core::mem;
 use network_types::eth::EthHdr;
 use network_types::ip::Ipv4Hdr;
 use network_types::tcp::TcpHdr;
-use crate::parser::PacketContext;
 
 const ETH_HDR_LEN: usize = mem::size_of::<EthHdr>();
 const IP_HDR_LEN: usize = mem::size_of::<Ipv4Hdr>();
@@ -45,13 +42,13 @@ pub fn calculate_cookie(src: u32, dst: u32, sport: u16, dport: u16, proto: u8) -
 fn update_checksum(old_csum: u16, old_val: u32, new_val: u32) -> u16 {
     let mut sum = !old_csum as u32;
 
-    sum = sum.wrapping_add(! (old_val >> 16) as u16 as u32);
-    sum = sum.wrapping_add(! (old_val & 0xFFFF) as u16 as u32);
+    sum = sum.wrapping_add(!(old_val >> 16) as u16 as u32);
+    sum = sum.wrapping_add(!(old_val & 0xFFFF) as u16 as u32);
 
-    sum = sum.wrapping_add( (new_val >> 16) as u16 as u32);
-    sum = sum.wrapping_add( (new_val & 0xFFFF) as u16 as u32);
+    sum = sum.wrapping_add((new_val >> 16) as u16 as u32);
+    sum = sum.wrapping_add((new_val & 0xFFFF) as u16 as u32);
 
-    while(sum >> 16) > 0{
+    while (sum >> 16) > 0 {
         sum = (sum & 0xFFFF) + (sum >> 16);
     }
 
@@ -59,17 +56,17 @@ fn update_checksum(old_csum: u16, old_val: u32, new_val: u32) -> u16 {
 }
 
 #[inline(always)]
-pub fn send_syn_cookie(ctx: &XdpContext) -> Result<u32, ()>{
+pub fn send_syn_cookie(ctx: &XdpContext) -> Result<u32, ()> {
     let data_end = ctx.data_end();
     let data = ctx.data();
 
-    if data + ETH_HDR_LEN + IP_HDR_LEN + TCP_HDR_LEN > data_end{
+    if data + ETH_HDR_LEN + IP_HDR_LEN + TCP_HDR_LEN > data_end {
         return Err(());
     }
 
-    let eth = unsafe { &mut *(data as *mut EthHdr)};
-    let ip = unsafe { &mut *((data + ETH_HDR_LEN) as *mut Ipv4Hdr)};
-    let tcp  = unsafe { &mut *((data + ETH_HDR_LEN + IP_HDR_LEN) as *mut TcpHdr)};
+    let eth = unsafe { &mut *(data as *mut EthHdr) };
+    let ip = unsafe { &mut *((data + ETH_HDR_LEN) as *mut Ipv4Hdr) };
+    let tcp = unsafe { &mut *((data + ETH_HDR_LEN + IP_HDR_LEN) as *mut TcpHdr) };
 
     let src_ip = u32::from_be_bytes(ip.src_addr);
     let dst_ip = u32::from_be_bytes(ip.dst_addr);
@@ -101,7 +98,7 @@ pub fn send_syn_cookie(ctx: &XdpContext) -> Result<u32, ()>{
 
     let mut csum = u16::from_be_bytes(tcp.check);
     csum = update_checksum(csum, seq, cookie);
-    csum = update_checksum(csum, 0, seq+1);
+    csum = update_checksum(csum, 0, seq + 1);
     csum = update_checksum(csum, SYN_FLAG, SYN_ACK_FLAG);
 
     tcp.check = u16::to_be_bytes(csum);

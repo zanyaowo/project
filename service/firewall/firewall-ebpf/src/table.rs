@@ -1,15 +1,12 @@
-use aya_ebpf::{
-    maps::LruPerCpuHashMap,
-    macros::map,
-    helpers::bpf_ktime_get_ns
-};
+use crate::PacketInfo;
+use aya_ebpf::{helpers::bpf_ktime_get_ns, macros::map, maps::LruPerCpuHashMap};
 use firewall_common::constants::{SESSION_TABLE_SIZE, TCP_FLAG_FIN, TCP_FLAG_RST};
 use firewall_common::protocol::L4Info;
 use firewall_common::session::{SessionKey, SessionValue};
-use crate::PacketInfo;
 
 #[map]
-pub static mut SESSIONS: LruPerCpuHashMap<SessionKey, SessionValue> = LruPerCpuHashMap::with_max_entries(SESSION_TABLE_SIZE, 0);
+pub static mut SESSIONS: LruPerCpuHashMap<SessionKey, SessionValue> =
+    LruPerCpuHashMap::with_max_entries(SESSION_TABLE_SIZE, 0);
 
 pub struct SessionUpdateParams {
     pub src_ip: u32,
@@ -34,7 +31,7 @@ impl From<&PacketInfo> for SessionUpdateParams {
             L4Info::Unknown => (0, 0, 0),
         };
 
-        SessionUpdateParams{
+        SessionUpdateParams {
             src_ip,
             dst_ip,
             src_port,
@@ -49,7 +46,7 @@ impl From<&PacketInfo> for SessionUpdateParams {
 
 impl From<&SessionUpdateParams> for SessionKey {
     fn from(params: &SessionUpdateParams) -> Self {
-        SessionKey{
+        SessionKey {
             src_ip: params.src_ip,
             dst_ip: params.dst_ip,
             src_port: params.src_port,
@@ -60,8 +57,8 @@ impl From<&SessionUpdateParams> for SessionKey {
     }
 }
 
-fn is_connection_closed(flag: u8) -> bool{
-    if (flag & TCP_FLAG_RST != 0) || (flag & TCP_FLAG_FIN != 0){
+fn is_connection_closed(flag: u8) -> bool {
+    if (flag & TCP_FLAG_RST != 0) || (flag & TCP_FLAG_FIN != 0) {
         return true;
     };
     false
@@ -70,7 +67,7 @@ fn is_connection_closed(flag: u8) -> bool{
 //更新session
 #[inline(always)]
 pub fn update_session(params: &SessionUpdateParams) -> Option<SessionValue> {
-    let fwd_key = SessionKey{
+    let fwd_key = SessionKey {
         src_ip: params.src_ip,
         dst_ip: params.dst_ip,
         src_port: params.src_port,
@@ -79,7 +76,7 @@ pub fn update_session(params: &SessionUpdateParams) -> Option<SessionValue> {
         _padding: [0; 3],
     };
 
-    let rev_key = SessionKey{
+    let rev_key = SessionKey {
         src_ip: params.dst_ip,
         dst_ip: params.src_ip,
         src_port: params.dst_port,
@@ -88,8 +85,8 @@ pub fn update_session(params: &SessionUpdateParams) -> Option<SessionValue> {
         _padding: [0; 3],
     };
 
-    unsafe{
-        if let Some(session) = SESSIONS.get_ptr_mut(&fwd_key){
+    unsafe {
+        if let Some(session) = SESSIONS.get_ptr_mut(&fwd_key) {
             (*session).orig_pkts += 1;
             (*session).orig_bytes += params.payload_len;
             (*session).pkt_sum_sq += params.len * params.len;
@@ -97,27 +94,25 @@ pub fn update_session(params: &SessionUpdateParams) -> Option<SessionValue> {
             (*session).flag = params.flag;
             (*session).is_close = is_connection_closed(params.flag);
 
-            if((*session).max_pkt_len < params.len as u32){
+            if ((*session).max_pkt_len < params.len as u32) {
                 (*session).max_pkt_len = params.len as u32;
             }
 
             Some(*session)
-
-        }else if let Some(session) = SESSIONS.get_ptr_mut(&rev_key){
+        } else if let Some(session) = SESSIONS.get_ptr_mut(&rev_key) {
             (*session).resp_pkts += 1;
             (*session).resp_bytes += params.payload_len;
-            (*session).pkt_sum_sq +=  params.len * params.len;
+            (*session).pkt_sum_sq += params.len * params.len;
             (*session).last_seen_ts = bpf_ktime_get_ns();
             (*session).flag = params.flag;
             (*session).is_close = is_connection_closed(params.flag);
 
-            if((*session).max_pkt_len < params.len as u32){
+            if ((*session).max_pkt_len < params.len as u32) {
                 (*session).max_pkt_len = params.len as u32;
             }
 
             Some(*session)
-
-        }else {
+        } else {
             let mut is_close = false;
             is_close = is_connection_closed(params.flag);
 

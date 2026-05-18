@@ -16,7 +16,7 @@ bounds 型別：
 蒸餾特徵與原始欄位對應：
   fwd_max_q  = Fwd Packet Length Max  / Fwd Packet Length Mean
   sym_ratio  = Total Fwd Packets      / Total Bwd Packets
-  pkt_cv     = Packet Length Std      / Packet Length Mean
+  pkt_cv_sq  = (Packet Length Std / Packet Length Mean)^2；kernel 以 aggregate 統計等價近似，避免 sqrt
   protocol   = Protocol               (直接使用)
   pkt_len_mean = Packet Length Mean   (直接使用)
 """
@@ -26,12 +26,22 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
+CANONICAL_FEATURE_ORDER = [
+    "protocol",
+    "pkt_len_mean",
+    "fwd_max_q",
+    "sym_ratio",
+    "pkt_cv_sq",
+]
+
 _FEATURE_COLUMN: dict[str, tuple[str, str | None]] = {
     "protocol": ("Protocol", None),
     "pkt_len_mean": ("Packet Length Mean", None),
     "fwd_max_q": ("Fwd Packet Length Max", "Fwd Packet Length Mean"),
     "sym_ratio":  ("Total Fwd Packets",     "Total Bwd Packets"),
-    "pkt_cv":     ("Packet Length Std",     "Packet Length Mean"),
+    # Contract v1 uses CV^2 to avoid sqrt in eBPF. It is computed specially in
+    # _feature_ratio_components() from packet length aggregate statistics.
+    "pkt_cv_sq":  ("Packet Length Sum Sq",  "Packet Length Sum"),
 }
 
 class DistilledClassifier:
@@ -45,6 +55,12 @@ class DistilledClassifier:
     """
 
     def __init__(self, rules: dict) -> None:
+        self._validate_contract(rules)
+        self.version: int = rules["version"]
+        self.feature_order: list[str] = list(rules["feature_order"])
+        self.threshold_cmp: str = rules["threshold_cmp"]
+        self.score_scale: int = rules["score_scale"]
+        self.length_unit: str = rules["length_unit"]
         self.threshold: int = rules["threshold"]
         self.bounds: list[dict] = rules["quantile_bounds"]
         self.score_table: np.ndarray = np.array(rules["score_table"], dtype=np.int32)
@@ -54,6 +70,31 @@ class DistilledClassifier:
                 f"score_table 長度 {len(self.score_table)} 與 2^{len(self.bounds)}={expected} 不符"
             )
 
+    @staticmethod
+    def _validate_contract(rules: dict) -> None:
+        """Validate distilled JSON contract v1 before any scoring happens."""
+        checks = {
+            "version": 1,
+            "feature_order": CANONICAL_FEATURE_ORDER,
+            "threshold_cmp": ">=",
+            "score_scale": 10000,
+            "length_unit": "packet_len",
+        }
+        for key, expected in checks.items():
+            if rules.get(key) != expected:
+                raise ValueError(f"distilled rules {key} must be {expected!r}, got {rules.get(key)!r}")
+
+        bounds = rules.get("quantile_bounds")
+        if not isinstance(bounds, list) or len(bounds) != len(CANONICAL_FEATURE_ORDER):
+            raise ValueError("quantile_bounds must contain exactly 5 entries")
+        bound_names = [bound.get("name") for bound in bounds]
+        if bound_names != CANONICAL_FEATURE_ORDER:
+            raise ValueError(f"quantile_bounds order must be {CANONICAL_FEATURE_ORDER!r}, got {bound_names!r}")
+
+        score_table = rules.get("score_table")
+        if not isinstance(score_table, list) or len(score_table) != 2 ** len(CANONICAL_FEATURE_ORDER):
+            raise ValueError("score_table must contain exactly 32 entries")
+
     @classmethod
     def from_json(cls, path: str | Path) -> "DistilledClassifier":
         with open(path) as f:
@@ -62,23 +103,43 @@ class DistilledClassifier:
 
     # ── 核心推論 ──────────────────────────────────────────────────
 
+    def _feature_ratio_components(self, df: pl.DataFrame, name: str) -> tuple[np.ndarray, np.ndarray | None]:
+        """Return integer numerator/denominator components for contract features."""
+        if name == "pkt_cv_sq":
+            if {"Packet Length Sum Sq", "Packet Length Sum", "Total Packets"}.issubset(set(df.columns)):
+                sum_sq = df["Packet Length Sum Sq"].to_numpy(allow_copy=True).astype(np.int64)
+                total_pkts = df["Total Packets"].to_numpy(allow_copy=True).astype(np.int64)
+                total_len = df["Packet Length Sum"].to_numpy(allow_copy=True).astype(np.int64)
+                total_len_sq = total_len * total_len
+                numer = (sum_sq * total_pkts) - total_len_sq
+                numer = np.maximum(numer, 0)
+                return numer, total_len_sq
+
+            std = df["Packet Length Std"].to_numpy(allow_copy=True).astype(np.int64)
+            mean = df["Packet Length Mean"].to_numpy(allow_copy=True).astype(np.int64) + 1
+            return std * std, mean * mean
+
+        num_col, den_col = _FEATURE_COLUMN[name]
+        num = df[num_col].to_numpy(allow_copy=True).astype(np.int64)
+        if den_col is None:
+            return num, None
+        den = df[den_col].to_numpy(allow_copy=True).astype(np.int64) + 1
+        return num, den
+
     def _build_index(self, df: pl.DataFrame) -> np.ndarray:
         """回傳 shape (N,) 的 0–31 整數索引陣列。"""
         idx = np.zeros(len(df), dtype=np.int64)
 
         for i, bound in enumerate(self.bounds):
-            num_col, den_col = _FEATURE_COLUMN[bound["name"]]
-            num = df[num_col].to_numpy(allow_copy=True).astype(np.int64)
+            num, den = self._feature_ratio_components(df, bound["name"])
 
             if bound["type"] == "absolute":
-                bit = (num > np.int64(bound["value"]))
+                bit = num > np.int64(bound["value"])
             elif bound["type"] == "ratio":
-                if den_col is None:
-                    bit = (num * bound["denom"]) > (bound["numer"])
+                if den is None:
+                    bit = (num * bound["denom"]) > bound["numer"]
                 else:
-                    den = df[den_col].to_numpy(allow_copy=True).astype(np.int64) + 1
                     bit = (num * bound["denom"]) > (den * bound["numer"])
-
             else:
                 raise ValueError(f"未知 bound type：{bound['type']!r}")
 

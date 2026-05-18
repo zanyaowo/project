@@ -28,7 +28,7 @@
 |------|------|------------|------|
 | **FwdMax_q** | Fwd Pkt Max / Fwd Pkt Mean | `fwd_pkt_max / fwd_pkt_mean` | 前向封包大小分散度；攻擊均一→比率≈1 |
 | **Sym_q** | Total Fwd Pkts / Total Bwd Pkts | `fwd_pkts / bwd_pkts` | 流量方向對稱性；單向洪水→極端不對稱 |
-| **Pkt_CV_q** | Packet Length Std / Packet Length Mean | `pkt_len_std / pkt_len_mean` | 封包大小變異係數；攻擊均一→低 CV |
+| **Pkt_CV_q** | (Packet Length Std / Packet Length Mean)^2 | `cv_numer / pkt_len_sum^2` | 封包大小變異係數平方；kernel 避免 sqrt |
 | Protocol | 原始值 | `protocol` | TCP=6, UDP=17, ICMP=1 |
 | Packet Length Mean | 原始值 | `pkt_len_mean` | 整體封包平均大小 |
 
@@ -91,7 +91,8 @@ ratio_quantile(__u64 a, __u64 b, void *map) {
 // 特徵計算（per-flow，於 TC hook）
 __u8 fwdmax_q = ratio_quantile(flow->fwd_pkt_max,  flow->fwd_pkt_mean, &fwdmax_bounds);
 __u8 sym_q    = ratio_quantile(flow->fwd_pkts,     flow->bwd_pkts,     &sym_bounds);
-__u8 pkt_cv_q = ratio_quantile(flow->pkt_len_std,  flow->pkt_len_mean, &cv_bounds);
+__u64 pkt_cv_sq_numer = flow->pkt_len_sum_sq * flow->total_pkts - flow->pkt_len_sum * flow->pkt_len_sum;
+__u8 pkt_cv_q = ratio_quantile(pkt_cv_sq_numer, flow->pkt_len_sum * flow->pkt_len_sum, &cv_bounds);
 ```
 
 > **溢位分析**：最差情況 `fwd_pkt_max ≈ 65535`（MTU），`denom = 2^20`，乘積 ≈ 6.9×10¹⁰，未超過 u64 上限（1.8×10¹⁹）。
@@ -279,7 +280,7 @@ __s64 score = w_fwdmax * fwdmax_q
             + w_proto  * protocol_bucket
             + w_mean   * mean_bucket;
 
-if (score > THRESHOLD) { /* 疑似攻擊，DROP 或 rate-limit */ }
+if (score >= THRESHOLD) { /* 疑似攻擊，DROP 或 rate-limit */ }
 ```
 
 優點：完全不需要儲存樹節點，整個推論只有 5 次乘法 + 加法 + 1 次比較。
@@ -376,11 +377,15 @@ S(x) ≈ Σ g_j(x_j)    ← 每個特徵的邊際貢獻（非線性）
 // 1 個 SCORE_TABLE ARRAY，32 個 entries（2^5 種組合）
 struct { __uint(type, BPF_MAP_TYPE_ARRAY); __uint(max_entries, 32); ... } SCORE_TABLE;
 
-// kernel 端評分
-__u32 bucket_idx = (fwdmax_q << 4) | (sym_q << 3) | (pkt_cv_q << 2)
-                 | (proto_bucket << 1) | mean_bucket;
+// kernel 端評分；正式 bit order 由 kernel_model_contract.md 定義：
+// bit0 protocol, bit1 pkt_len_mean, bit2 fwd_max_q, bit3 sym_ratio, bit4 pkt_cv_sq
+__u32 bucket_idx = proto_bucket
+                 | (mean_bucket   << 1)
+                 | (fwdmax_q      << 2)
+                 | (sym_q         << 3)
+                 | (pkt_cv_sq_q   << 4);
 __s32 *score = bpf_map_lookup_elem(&SCORE_TABLE, &bucket_idx);
-if (score && *score > THRESHOLD) return XDP_DROP;
+if (score && *score >= THRESHOLD) return XDP_DROP;
 ```
 
 > **早期設計（2026-04-13）曾選擇策略 3（N=16 + 線性加權），但 Run 25 確認 N=2 全面優於 N≥4，且查表法比線性加權能捕捉特徵交互。現已棄用 N=16 + 線性加權方案。**

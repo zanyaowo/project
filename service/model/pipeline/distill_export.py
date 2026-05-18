@@ -6,7 +6,7 @@ import argparse
 
 from service.model.data.sample import get_mixed_normal_sample
 from service.model.data.features import build_features
-from service.model.pipeline.distill import DistilledClassifier
+from service.model.pipeline.distill import CANONICAL_FEATURE_ORDER, DistilledClassifier
 from service.model.pipeline.trainer import get_trainer
 
 
@@ -16,8 +16,8 @@ def _bucket_indices(df: pl.DataFrame, bound: list[dict]) -> np.ndarray:
     tmp.bounds = bound
     return tmp._build_index(df)
 
-# bucket 特徵名稱，順序對應 kernel FEAT_* bit 位置（0–4）
-_BUCKET_FEATURE_COLS = ["protocol", "pkt_len_mean", "fwd_max_q", "sym_ratio", "pkt_cv"]
+# bucket 特徵名稱，順序對應 kernel model contract bit 位置（bit0–bit4）
+_BUCKET_FEATURE_COLS = CANONICAL_FEATURE_ORDER
 
 
 def run(args: argparse.Namespace) -> None:
@@ -59,8 +59,8 @@ def run(args: argparse.Namespace) -> None:
         (pl.col("Total Fwd Packets") / (pl.col("Total Bwd Packets") + 1))
         .median().alias("v")
     ).item()
-    p50_pkt_cv       = df_benign.select(
-        (pl.col("Packet Length Std") / (pl.col("Packet Length Mean") + 1))
+    p50_pkt_cv_sq    = df_benign.select(
+        ((pl.col("Packet Length Std") / (pl.col("Packet Length Mean") + 1)) ** 2)
         .median().alias("v")
     ).item()
 
@@ -69,7 +69,7 @@ def run(args: argparse.Namespace) -> None:
         {"name": "pkt_len_mean", "type": "absolute", "value": int(p50_pkt_len_mean)},
         {"name": "fwd_max_q",    "type": "ratio", "numer": int(p50_fwd_max_q * SCALE),  "denom": SCALE},
         {"name": "sym_ratio",    "type": "ratio", "numer": int(p50_sym_ratio * SCALE),  "denom": SCALE},
-        {"name": "pkt_cv",       "type": "ratio", "numer": int(p50_pkt_cv * SCALE),     "denom": SCALE},
+        {"name": "pkt_cv_sq",    "type": "ratio", "numer": int(p50_pkt_cv_sq * SCALE), "denom": SCALE},
     ]
 
     # step 3: BENIGN → 5-bit bucket index → 5 個 0/1 特徵欄
@@ -104,6 +104,11 @@ def run(args: argparse.Namespace) -> None:
 
     # step 7: 輸出 JSON
     result = {
+        "version": 1,
+        "feature_order": CANONICAL_FEATURE_ORDER,
+        "threshold_cmp": ">=",
+        "score_scale": SCORE_SCALE,
+        "length_unit": "packet_len",
         "threshold": threshold,
         "quantile_bounds": bound,
         "score_table": score_table,

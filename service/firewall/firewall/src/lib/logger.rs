@@ -1,11 +1,11 @@
+use crate::lib::config::Config;
 use aya::maps::{MapData, PerCpuHashMap, RingBuf};
 use firewall_common::session::{SessionEvent, SessionKey, SessionValue};
 use std::net::Ipv4Addr;
-use std::os::fd::AsRawFd;
-use tokio::io::unix::AsyncFd;
 use std::ops::Deref;
+use std::os::fd::AsRawFd;
 use std::sync::Arc;
-use crate::lib::config::Config;
+use tokio::io::unix::AsyncFd;
 
 struct SessionSummary {
     orig_bytes: u64,
@@ -26,9 +26,13 @@ impl<'a> Logger<'a> {
     pub fn new(
         ring_buf: RingBuf<&'a mut MapData>,
         session_table: PerCpuHashMap<&'a mut MapData, SessionKey, SessionValue>,
-        config: Arc<Config>
+        config: Arc<Config>,
     ) -> anyhow::Result<Self> {
-        Ok(Self { ring_buf, session_table, config })
+        Ok(Self {
+            ring_buf,
+            session_table,
+            config,
+        })
     }
 
     fn aggregate_per_cpu(values: &[SessionValue]) -> SessionSummary {
@@ -37,7 +41,12 @@ impl<'a> Logger<'a> {
             resp_bytes: values.iter().map(|v| v.resp_bytes).sum(),
             orig_pkts: values.iter().map(|v| v.orig_pkts).sum(),
             resp_pkts: values.iter().map(|v| v.resp_pkts).sum(),
-            start_ts: values.iter().map(|v| v.start_ts).filter(|&t| t > 0).min().unwrap_or(0),
+            start_ts: values
+                .iter()
+                .map(|v| v.start_ts)
+                .filter(|&t| t > 0)
+                .min()
+                .unwrap_or(0),
             last_seen_ts: values.iter().map(|v| v.last_seen_ts).max().unwrap_or(0),
         }
     }
@@ -51,13 +60,17 @@ impl<'a> Logger<'a> {
             while let Some(raw_event) = self.ring_buf.next() {
                 let data: &[u8] = raw_event.deref();
                 if data.len() < std::mem::size_of::<SessionEvent>() {
-                    log::warn!("Invalid event size: {} bytes, expected {}",
-                        data.len(), std::mem::size_of::<SessionEvent>());
+                    log::warn!(
+                        "Invalid event size: {} bytes, expected {}",
+                        data.len(),
+                        std::mem::size_of::<SessionEvent>()
+                    );
                     continue;
                 }
 
                 // SAFETY: 已驗證 data 大小足夠容納 SessionEvent
-                let event: SessionEvent = unsafe { (data.as_ptr() as *const SessionEvent).read_unaligned() };
+                let event: SessionEvent =
+                    unsafe { (data.as_ptr() as *const SessionEvent).read_unaligned() };
                 let session_key = event.key;
 
                 let values = match self.session_table.get(&session_key, 0) {
@@ -71,8 +84,10 @@ impl<'a> Logger<'a> {
 
                 log::info!(
                     "Log: Src={}:{}, Dst={}:{}, Proto={}, Bytes={}, Dur={:.4}s",
-                    Ipv4Addr::from(session_key.src_ip), session_key.src_port,
-                    Ipv4Addr::from(session_key.dst_ip), session_key.dst_port,
+                    Ipv4Addr::from(session_key.src_ip),
+                    session_key.src_port,
+                    Ipv4Addr::from(session_key.dst_ip),
+                    session_key.dst_port,
                     session_key.proto,
                     bytes_sum,
                     duration_ns as f64 / 1_000_000_000.0

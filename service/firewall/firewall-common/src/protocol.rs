@@ -2,7 +2,7 @@ use core::prelude::rust_2024::*;
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub enum L4Info{
+pub enum L4Info {
     Tcp(TcpInfo),
     Udp(UdpInfo),
     Icmp(IcmpInfo),
@@ -11,7 +11,7 @@ pub enum L4Info{
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct TcpInfo{
+pub struct TcpInfo {
     pub src_port: u16,
     pub dst_port: u16,
     pub flags: u8,
@@ -23,7 +23,7 @@ pub struct TcpInfo{
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct UdpInfo{
+pub struct UdpInfo {
     pub src_port: u16,
     pub dst_port: u16,
     pub header_len: u8,
