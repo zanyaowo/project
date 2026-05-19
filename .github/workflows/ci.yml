@@ -50,6 +50,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: service/firewall
+      - name: Install bpf-linker
+        run: cargo install bpf-linker --locked
       - run: |
           cd service/firewall
           cargo build --package firewall-ebpf \
