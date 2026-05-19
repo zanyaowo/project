@@ -146,7 +146,7 @@ eBPF 最強大的功能是 `BPF_MAP`。與其在內核計算 log 或複雜乘法
 | **TC** | 分位桶推論、限流執行 | FwdMax_q / Sym_q / Pkt_CV_q 計算 |
 | **Userspace（Rust）** | 邊界重算、Map 下發、自適應校準 | 以 Mixed BENIGN 計算新邊界；adaptive boundary（`boundary_updater.rs`）|
 
-> ⚠️ **規劃中，尚未實作：** 「Userspace（Python）完整 IF 推論（邊緣案例）」為 Layer 2 設計目標，**目前未實作**——`firewall` userspace 僅有 logging（`logger.rs`）+ adaptive boundary（`boundary_updater.rs`），無任何 runtime IF 推論路徑。**離線** IF 程式碼存在於 `service/model/`（`train.py`/`infer.py`/`trainer/if_.py`），但與 runtime 未接通。現況唯一推論層為 eBPF fast-path；HOIC 等為其已知限制。Layer 2 的集成步驟見 **`docs/layer2_integration_plan.md`**。
+> ⚠️ **規劃中，尚未實作：** 「Userspace（Python）完整 IF 推論（邊緣案例）」為 Layer 2 設計目標，**目前未實作**——`firewall` userspace 僅有 logging（`logger.rs`）+ adaptive boundary（`boundary_updater.rs`），無任何 runtime IF 推論路徑。**離線** IF 程式碼存在於 `service/model/`（`train.py`/`infer.py`/`trainer/if_.py`），但與 runtime 未接通。現況唯一推論層為 eBPF fast-path；HOIC 等為其已知限制。Layer 2 的集成步驟待撰寫（計畫文件尚未建立）。
 
 **XDP 新增需求：** per-flow struct 需新增 `fwd_pkt_max` 欄位，在 XDP hook 每封包更新：
 
@@ -172,7 +172,7 @@ if (pkt_len > flow->fwd_pkt_max && direction == FWD)
 
 **Kernel 推論（現況）vs Userspace 完整 IF（Layer 2，規劃中未實作）：**
 
-> 右欄為 **Layer 2 設計目標**，目前未實作（見 `docs/layer2_integration_plan.md`）。左欄是現況唯一推論層。右欄數字為規劃預期，非已驗證。
+> 右欄為 **Layer 2 設計目標**，目前未實作（集成計畫待撰寫）。左欄是現況唯一推論層。右欄數字為規劃預期，非已驗證。
 
 | 維度 | Kernel 推論（現況）| Userspace 完整 IF（Layer 2，規劃）|
 |------|------------|----------------------|
@@ -232,7 +232,7 @@ IsolationForest 完整模型有 200 棵樹 × ~100 節點 = ~20,000 節點，超
 | Userspace 完整 IF（Layer 2）| 1–10 ms | 預期完整精度（取決於特徵重建）| **規劃中，未實作** |
 
 **目標架構：分層（Layer 1 Kernel + Layer 2 Userspace）；現況：僅 Layer 1 已實作。**
-Layer 2（Userspace 完整 IF）為設計目標但尚未接通 runtime（離線 IF 在 `service/model/`，未與 `firewall` userspace 整合）。在 Layer 2 就位前，LOIC-HTTP（Layer 4 特徵無法突破，Layer 2 用同樣 Layer 4 特徵亦無法救）、HOIC（Protocol 二值化抹掉 IF 幾何，Run 28/29）皆為 **eBPF fast-path 的已知限制**。HOIC 的低成本替代解（eBPF 端 `init_win_ratio` 硬規則，無需整個 Layer 2 IF）見「待研究問題」；Layer 2 集成步驟見 `docs/layer2_integration_plan.md`。
+Layer 2（Userspace 完整 IF）為設計目標但尚未接通 runtime（離線 IF 在 `service/model/`，未與 `firewall` userspace 整合）。在 Layer 2 就位前，LOIC-HTTP（Layer 4 特徵無法突破，Layer 2 用同樣 Layer 4 特徵亦無法救）、HOIC（Protocol 二值化抹掉 IF 幾何，Run 28/29）皆為 **eBPF fast-path 的已知限制**。HOIC 的低成本替代解（eBPF 端 `init_win_ratio` 硬規則，無需整個 Layer 2 IF）見「待研究問題」；Layer 2 集成步驟待撰寫。
 
 ### 軸心二：特徵計算方式
 

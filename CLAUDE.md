@@ -4,7 +4,7 @@
 
 XDP（特徵提取、黑名單）→ TC（分位桶推論、限流）→ Rust Userspace（adaptive boundary 校準、Map 下發）→ ⟦Layer 2 Userspace 完整 IF：規劃中，未實作⟧
 
-> 現況唯一推論層是 eBPF fast-path；Rust userspace 只做 logging + adaptive boundary，**無 runtime IF**。離線 IF 在 `service/model/`（訓練/蒸餾/實驗），未與 runtime 接通。Layer 2（邊緣案例完整 IF）為設計目標，集成計畫見 `docs/layer2_integration_plan.md`。
+> 現況唯一推論層是 eBPF fast-path；Rust userspace 只做 logging + adaptive boundary，**無 runtime IF**。離線 IF 在 `service/model/`（訓練/蒸餾/實驗），未與 runtime 接通。Layer 2（邊緣案例完整 IF）為設計目標，集成計畫待撰寫（文件尚未建立）。
 
 **唯一架構依據：** `docs/kernel_defense_architecture.md`
 （eBPF verifier 限制、分位桶 N=2 決策、AUC 數字、數學模型均在此）

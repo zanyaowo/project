@@ -48,4 +48,4 @@
 
 ## 已知 doc 債
 
-- `docs/layer2_integration_plan.md` 被引用 4 處（CLAUDE.md ×1、`kernel_defense_architecture.md` ×3）但**檔案不存在**。待補寫該計畫，或把引用改為「(待撰寫)」。
+- **Layer 2 集成計畫尚未撰寫**。原本 4 處死連結（CLAUDE.md ×1、`kernel_defense_architecture.md` ×3 指向不存在的 `docs/layer2_integration_plan.md`）已改為「待撰寫」純文字，不再是 broken link。實際補寫該計畫文件後，再把這些敘述接回連結。
