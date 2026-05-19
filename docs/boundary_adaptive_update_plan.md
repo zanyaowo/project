@@ -338,3 +338,47 @@ boundary_ttl_secs = 600    # eBPF boundary 版本 TTL，逾時回退
 - **不更新 SCORE_TABLE 的 32 個條目**：那是 IF 蒸餾結果，只有 Python 重訓練能改。
 - **不對 attack-induced drift 做校準**：偵測到 drift ≠ 一定更新；攻擊污染要被隔離而非校準成新常態。
 - **不嘗試在 eBPF 偵測 HOIC**：HOIC 由 Userspace IF（完整特徵）處理，符合 Layer 2 架構。
+
+---
+
+## 11. 實作落地與 CI 紀錄（2026-05-19，branch `feat/model_develope`）
+
+### Commits（`1832cdc` 之後）
+
+| commit | 內容 |
+|--------|------|
+| `f968772` | feat：自適應分位桶校準（dual-sketch + gated update）主體 |
+| `7c19ea2` | chore：clippy `-D warnings` 加固（移除未用 `seeded` 欄位、f64 用 `total_cmp` 排序）|
+| `029aae8` | fix：`build.rs` clippy `needless_borrow`（`toml::from_str(contents)`）|
+| `df1f1d8` | fix(deps)：`bytes` 1.10.1 → 1.11.1（RUSTSEC-2026-0007）|
+| `bed693b` | ci：build-ebpf 移除 `targets: bpfel-unknown-none`；audit job 加 `permissions: checks: write` |
+| `faf5adb` | fix(ci)：移除 firewall-common 冗餘 `core::prelude::rust_2024::*` import；build-ebpf 加 `cargo install bpf-linker` |
+
+### 與 v2 設計的落地差異
+
+- **`BoundaryMeta` 取代 fixed-point `BoundaryConfig`**：double-buffer 直接做在既有 `QUANTILE_BOUNDS`（兩 bank），保留已驗證的 absolute/ratio 比較數學；`QuantileBound` 本為整數，無需 fixed-point（見 §9 註）。
+- **併發模型**：v1「`controller.load()` 內 spawn」在 aya 借用模型下不可行；改為 `main.rs` 以 `tokio::try_join!(logger.start(), updater.run())` 併發。
+- **取樣**：kernel 端以 `STATS_SAMPLE_CTR`（PerCpuArray）做 `1<<STATS_SAMPLE_SHIFT` 取樣，降 ring buffer 壓力。
+- **monotonicity 投影**：1-bit/feature（`BUCKET_COUNT == 2`）下無意義，刻意不實作（見 §7 註）。
+
+### CI（`.github/workflows/ci.yml`）相關修正
+
+均為既有 pipeline／環境問題，非本 feature 邏輯造成：
+
+| 問題 | 根因 | 修法 |
+|------|------|------|
+| clippy 失敗 | `cargo clippy -- -D warnings` 對 workspace path-dep 同樣套用；`build.rs` needless_borrow 與 firewall-common 冗餘 prelude import 變致命 | 修 `toml::from_str(contents)`；刪三檔冗餘 import |
+| build-ebpf：rustup 抓不到 `rust-std` | `targets: bpfel-unknown-none` 為 tier-3 無預編 std；本應靠 `-Z build-std=core` + `rust-src` | 移除 `targets:` 行，保留 `components: rust-src` |
+| build-ebpf：`linker bpf-linker not found` | CI 從未安裝 bpf-linker | 加 `cargo install bpf-linker --locked` |
+| audit：`Resource not accessible by integration` | `rustsec/audit-check` 要建 check-run，但 `GITHUB_TOKEN` 無 `checks: write` | audit job 加 `permissions: {contents: read, checks: write}` |
+| audit：RUSTSEC-2026-0007 | `bytes` 1.10.1 整數溢位 | bump 至 1.11.1 |
+
+### 驗證狀態
+
+- ✅ **本地（macOS）已實證**：`cargo fmt … --check` clean；`cargo check -p firewall-common` 無 warning。
+- ⏳ **待 Linux CI 實證**（macOS 無法跑 aya）：
+  - clippy 對 `firewall` 套件本體（我的新 userspace 程式碼）—— firewall-common 清乾淨後此輪才首次真正 lint 到。
+  - build-ebpf：scorer 等變更於 `bpfel-unknown-none` 編譯 + bpf-linker link。
+  - build：`firewall` userspace release 編譯正確性。
+  - `boundary_updater` 的 8 個單元測試需 Linux `cargo test -p firewall`（CI 未跑 test，不 gate）。
+- ⚠️ firewall-ebpf 仍有 25 個 pre-existing warning（`static_mut_refs`、unused 等）；build-ebpf job 無 `-D warnings` 故非 fatal，未處理。
