@@ -20,7 +20,7 @@
 
 ---
 
-## 當前最優特徵方案（Run 25，2026-04-18 確立）
+## 當前部署特徵方案（特徵集 Run 25 確立；contract AUC 以 Run 28/29 為準）
 
 ### 分位桶特徵（5 個，N=2）
 
@@ -41,13 +41,17 @@ CICFlowMeter 的 `Min Packet Length` 包含 TCP ACK 封包（payload=0），導�
 
 純 CIC 邊界已確認對 BigFlow 嚴重 overfit：CIC 訓練後 BigFlow AUC < 0.4，反轉為低於隨機基線。
 
-### 最終 AUC-ROC（Run 25）
+### AUC-ROC：證據模型 ≠ 部署 contract（Run 28/29 確認，2026-05-18）
 
-| DDoS2019 | LOIC-HTTP | HOIC | LOIC-UDP | BigFlow |
-|:---:|:---:|:---:|:---:|:---:|
-| 0.8888 | 0.4744 | 0.8125 | 0.9959 | 0.8769 |
+> ⚠️ **下表 Run 25 那行不是部署證據。** Run 25 的證據模型 Protocol/Packet Length Mean 為 raw 連續值直接丟 IsolationForest（IF-direct，`table_size=None`），**與本文件描述的全二值化 32-entry score table contract 是不同 model class**。Run 28 對照矩陣（`service/model/experiments/run28_contract_matrix.py`）在同資料同設定下證實：一旦把 Protocol/PktLenMean 二值化（即實際 ship 的 `distill_export.py` 輸出），HOIC 從 0.79 崩到 0.0001，平均 AUC 從 0.81 掉到 0.60。
 
-> LOIC-HTTP（0.4744）為 Layer 4 特徵的根本限制，非特徵選擇問題；HTTP 洪水攻擊需應用層特徵才可突破。
+| 模型 | Run 28 對應 | DDoS2019 | LOIC-HTTP | HOIC | LOIC-UDP | BigFlow | Avg |
+|------|------|:---:|:---:|:---:|:---:|:---:|:---:|
+| Run 25 證據（IF-direct；Protocol/PktLenMean raw、CV 未平方） | `A_run25_original` | 0.8888 | 0.4744 | 0.8125 | 0.9959 | 0.8769 | 0.8097 |
+| **實際部署（5-bit all-binary，32-entry，`distill_export.py`）** | `D_current_5bit_contract` | 0.8833 | 0.2647 | **0.0001** | 0.9969 | 0.8756 | **0.6041** |
+
+> LOIC-HTTP（0.4744，Run 25 證據模型）為 Layer 4 特徵的根本限制，非特徵選擇問題；HTTP 洪水攻擊需應用層特徵才可突破。
+> HOIC 在部署 contract 下完全失效（0.0001），不是 boundary overfit，而是 Protocol 二值化抹掉 IF 在 TCP 內部的幾何分離能力（Run 28 結論 #3、Run 29 結論 #3）。後續所有引用部署 AUC 的決策必須用 `D` 那行。
 
 ---
 
@@ -140,8 +144,9 @@ eBPF 最強大的功能是 `BPF_MAP`。與其在內核計算 log 或複雜乘法
 |------|------|------|
 | **XDP** | 黑名單比對、特徵計數器更新 | per-flow fwd_pkt_max 追蹤（需新增欄位）|
 | **TC** | 分位桶推論、限流執行 | FwdMax_q / Sym_q / Pkt_CV_q 計算 |
-| **Userspace（Rust）** | 邊界重算、Map 下發、模型更新 | 以 Mixed BENIGN 計算新邊界 |
-| **Userspace（Python）** | 完整 IF 推論（邊緣案例） | 26 個 FEATURE_COLS，Run 07 基準 |
+| **Userspace（Rust）** | 邊界重算、Map 下發、自適應校準 | 以 Mixed BENIGN 計算新邊界；adaptive boundary（`boundary_updater.rs`）|
+
+> ⚠️ **規劃中，尚未實作：** 「Userspace（Python）完整 IF 推論（邊緣案例）」為 Layer 2 設計目標，**目前未實作**——`firewall` userspace 僅有 logging（`logger.rs`）+ adaptive boundary（`boundary_updater.rs`），無任何 runtime IF 推論路徑。**離線** IF 程式碼存在於 `service/model/`（`train.py`/`infer.py`/`trainer/if_.py`），但與 runtime 未接通。現況唯一推論層為 eBPF fast-path；HOIC 等為其已知限制。Layer 2 的集成步驟見 **`docs/layer2_integration_plan.md`**。
 
 **XDP 新增需求：** per-flow struct 需新增 `fwd_pkt_max` 欄位，在 XDP hook 每封包更新：
 
@@ -165,16 +170,16 @@ if (pkt_len > flow->fwd_pkt_max && direction == FWD)
            無浮點除法        交叉乘法比對       TC redirect
 ```
 
-**與 Userspace 推論的對比：**
+**Kernel 推論（現況）vs Userspace 完整 IF（Layer 2，規劃中未實作）：**
 
-| 維度 | Kernel 推論 | Userspace 推論（現況） |
+> 右欄為 **Layer 2 設計目標**，目前未實作（見 `docs/layer2_integration_plan.md`）。左欄是現況唯一推論層。右欄數字為規劃預期，非已驗證。
+
+| 維度 | Kernel 推論（現況）| Userspace 完整 IF（Layer 2，規劃）|
 |------|------------|----------------------|
 | 決策延遲 | < 1 µs（封包路徑內）| 1–10 ms（ring buffer + IPC）|
 | 模型複雜度 | 受 verifier 限制，需蒸餾 | 無限制，可用完整 IF |
-| 模型更新 | userspace 計算邊界後下發 BPF_MAP | Python 重訓後 reload |
-| 精度損失 | 存在（Run 25: BigFlow AUC −0.12 vs 純 BF 邊界）| 無 |
-| 部署複雜度 | 高（需蒸餾 + verifier 通過）| 低（Python 直接推論）|
-| 適用場景 | 大流量快速過濾，明顯攻擊特徵 | 邊緣案例、需高精度判斷 |
+| 精度損失 | 存在（Run 28 D：HOIC 0.0001、avg 0.60）| 預期無（取決於特徵重建完整度）|
+| 適用場景 | 全部流量；HOIC 等為已知限制 | 邊緣案例（需特徵重建管線就位）|
 
 ### 三個必要條件
 
@@ -221,14 +226,13 @@ IsolationForest 完整模型有 200 棵樹 × ~100 節點 = ~20,000 節點，超
 
 ### 軸心一：推論位置
 
-| 選項 | 延遲 | 精度 | 適用時機 |
+| 選項 | 延遲 | 精度 | 狀態 |
 |------|------|------|---------|
-| **Kernel-side（目標）** | < 1 µs | Run 25 AUC 見上表 | 大流量快速過濾，明顯攻擊型態 |
-| Userspace（現況）| 1–10 ms | 完整精度（Run 07: 0.9257）| 邊緣案例、需完整 IF 模型 |
+| **Kernel-side（現況唯一推論層）** | < 1 µs | 部署 contract = Run 28 D（HOIC 0.0001、avg 0.60，見「最終 AUC-ROC」）| 已實作 |
+| Userspace 完整 IF（Layer 2）| 1–10 ms | 預期完整精度（取決於特徵重建）| **規劃中，未實作** |
 
-**本專案選擇：分層架構（兩者不互斥）**
-- **Layer 1 — Kernel**：過濾特徵分位值極端的明顯攻擊（LOIC-UDP Sym_q 最大桶、DDoS FwdMax_q 最小桶）
-- **Layer 2 — Userspace**：處理邊緣案例（LOIC-HTTP 需應用層特徵，Layer 4 無法突破）
+**目標架構：分層（Layer 1 Kernel + Layer 2 Userspace）；現況：僅 Layer 1 已實作。**
+Layer 2（Userspace 完整 IF）為設計目標但尚未接通 runtime（離線 IF 在 `service/model/`，未與 `firewall` userspace 整合）。在 Layer 2 就位前，LOIC-HTTP（Layer 4 特徵無法突破，Layer 2 用同樣 Layer 4 特徵亦無法救）、HOIC（Protocol 二值化抹掉 IF 幾何，Run 28/29）皆為 **eBPF fast-path 的已知限制**。HOIC 的低成本替代解（eBPF 端 `init_win_ratio` 硬規則，無需整個 Layer 2 IF）見「待研究問題」；Layer 2 集成步驟見 `docs/layer2_integration_plan.md`。
 
 ### 軸心二：特徵計算方式
 
@@ -237,27 +241,29 @@ IsolationForest 完整模型有 200 棵樹 × ~100 節點 = ~20,000 節點，超
 | 原始計數器（無比率）| ✓ 直接讀取 | 未測定 | — |
 | 浮點 log1p 比率 | ✗ | 0.9114（基準）| Run 16 |
 | 分位桶 N=2（Shape_q）| ✓ 交叉乘法 | 0.9418 CIC-only | Run 17（已棄用）|
-| **分位桶 N=2（FwdMax_q）** | **✓ 交叉乘法** | **0.8888 Mixed** | **Run 25 ✓ 當前最優** |
+| 分位桶 N=2（FwdMax_q）| ✓ 交叉乘法 | 0.8888（**IF-direct 證據，非部署 contract**）| Run 25（見「最終 AUC-ROC」caveat）|
 
 **本專案選擇：FwdMax_q 分位桶 N=2**，Mixed BENIGN 邊界，以 `(a × denom) < (b × numer)` 在 kernel 判斷分位排名。
 
-N 值選擇依據（Run 25 掃描）：
+> ⚠️ 下表 N 掃描全部走 **IF-direct（Protocol/PktLenMean raw）**，**從未在實際 score-table contract 上驗證**（Run 17/22/25 皆然）。「N=2 最優」僅對 IF-direct 成立；部署 contract 的 N 行為未測。新 N-scan 必須走 binary contract path（仿 `run28_contract_matrix.py` D 結構）。
 
-| N | DDoS2019 | BigFlow | 平均 | 結論 |
+N 值選擇依據（Run 25 掃描，**IF-direct 證據，非部署 contract**）：
+
+| N | DDoS2019 | BigFlow | 平均 | 結論（僅限 IF-direct）|
 |:---:|:---:|:---:|:---:|------|
-| **2** | **0.8888** | **0.8769** | **0.8097** | **最優，eBPF 最簡（1 次比較/特徵）** |
-| 4 | 0.8463 | 0.8413 | 0.7967 | 次選 |
-| 8 | 0.8444 | 0.8492 | 0.7911 | 最差 |
+| 2 | 0.8888 | 0.8769 | 0.8097 | IF-direct 下最優，eBPF 最簡 |
+| 4 | 0.8463 | 0.8413 | 0.7967 | — |
+| 8 | 0.8444 | 0.8492 | 0.7911 | — |
 | 16 | 0.8468 | 0.8549 | 0.8046 | 邊界退化（p50=0）|
 
 ### 軸心三：模型蒸餾形式
 
 | 選項 | 狀態 | 備注 |
 |------|------|------|
-| **分位桶閾值比對（N=2）+ Userspace IF** | **Run 25 已驗證** | **當前方案：Userspace 推論，Kernel 做前置過濾** |
+| **分位桶 N=2 + 32-entry score-table（全 kernel）** | **現況部署（唯一已實作）** | Run 28 D；HOIC 0.0001、avg 0.60。Userspace IF（Layer 2）規劃中未實作 |
 | 線性加權評分 `S = Σ w_j × q_j`（Kernel 端）| 待蒸餾驗證 | AUC 損失需 < 0.02，才值得移至 Kernel |
 | 單層決策樹（深度 ≤ 4）| 待驗證 | 可表達非線性邊界，比線性更接近 IF 行為 |
-| 完整 IsolationForest | Userspace 已實作 | ~20,000 節點，不可入 Kernel |
+| 完整 IsolationForest | **Layer 2 規劃中（離線在 `service/model/`，runtime 未接通）**| ~20,000 節點，不可入 Kernel；屬 Userspace Layer 2 |
 
 #### 線性加權的使用邊界
 
@@ -288,9 +294,9 @@ if (score >= THRESHOLD) { /* 疑似攻擊，DROP 或 rate-limit */ }
 **何時考慮移至 Kernel：**
 
 ```
-前提：蒸餾實驗驗證 AUC 損失 < 0.02
-  → 是：部署為 Kernel 端線性評分，取代 Userspace roundtrip
-  → 否：保持 Userspace IF，Kernel 只做 FPR 極低的前置硬規則過濾
+前提：蒸餾實驗驗證 AUC 損失 < 0.02（基準為現況 kernel 32-entry score-table）
+  → 是：部署為 Kernel 端線性評分，取代現況 32-entry 查表
+  → 否：保持現況 kernel 32-entry score-table（Layer 2 Userspace IF 就位前無退路）
           （例如 Sym_q=1 AND Pkt_CV_q=0 → 直接 DROP，不經 Userspace）
 ```
 
@@ -365,6 +371,8 @@ S(x) ≈ Σ g_j(x_j)    ← 每個特徵的邊際貢獻（非線性）
 ### 當前選擇（2026-04-28 確立）
 
 採用**策略 5（分位桶 N=2 + 查表法）**：5 個特徵共 2^5 = 32 種桶組合，userspace 預先計算每種組合的 IF 分數，存入 `SCORE_TABLE[32]`；kernel 端只做 5 次邊界比較 + 1 次陣列查表。
+
+> ⚠️ **2026-05-18 修正：** 策略 5 的「機制」（查表捕捉特徵交互）成立，但**目前 32-entry all-binary 實例的 AUC 不佳**——Run 28/29 證實此 contract HOIC=0.0001、avg=0.60（見「最終 AUC-ROC」D 行）。真因是 Protocol/PktLenMean 二值化抹掉 IF 幾何（與比率特徵 N 正交）。查表法本身不是問題（Run 28 C 192-entry 保 Protocol categorical 可部分救 HOIC）；待決架構問題見下方「待研究問題」。本段描述的是現況部署實例，非「已驗證最優」。
 
 **優勢：**
 - 能捕捉特徵交互（例如「Sym_q=1 且 Pkt_CV_q=0」的組合分數可獨立設定）
