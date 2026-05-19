@@ -1,5 +1,7 @@
 use aya::maps::{Array, MapData};
-use firewall_common::model::{ModelConfig, QuantileBound, FEATURE_COUNT, SCORE_TABLE_SIZE};
+use firewall_common::model::{
+    BoundaryMeta, ModelConfig, QuantileBound, FEATURE_COUNT, SCORE_TABLE_SIZE,
+};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -189,5 +191,85 @@ pub fn load_model(
 
     config_map.set(0, enabled, 0)?;
 
+    Ok(())
+}
+
+/// CLOCK_MONOTONIC nanoseconds — matches the kernel's `bpf_ktime_get_ns()`
+/// so eBPF TTL comparison against `BoundaryMeta.expiry_ns` is consistent.
+#[cfg(target_os = "linux")]
+fn monotonic_ns() -> u64 {
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: ts is a valid, writable timespec.
+    unsafe {
+        libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts);
+    }
+    (ts.tv_sec as u64).saturating_mul(1_000_000_000) + ts.tv_nsec as u64
+}
+
+#[cfg(not(target_os = "linux"))]
+fn monotonic_ns() -> u64 {
+    0
+}
+
+/// Atomically publish a new boundary bank (double buffering).
+/// Writes all FEATURE_COUNT bounds into the inactive bank, then flips
+/// `BoundaryMeta.active` in a single `set` so the datapath never observes
+/// a half-updated bank. `ttl_ns == 0` disables expiry.
+pub fn write_boundary_version(
+    bounds_map: &mut Array<&mut MapData, QuantileBound>,
+    meta_map: &mut Array<&mut MapData, BoundaryMeta>,
+    new_bounds: &[QuantileBound],
+    ttl_ns: u64,
+) -> anyhow::Result<()> {
+    if new_bounds.len() != FEATURE_COUNT as usize {
+        anyhow::bail!(
+            "write_boundary_version expects {} bounds, got {}",
+            FEATURE_COUNT,
+            new_bounds.len()
+        );
+    }
+
+    let prev = meta_map.get(0, 0).unwrap_or(BoundaryMeta {
+        version: 0,
+        active: 0,
+        expiry_ns: 0,
+    });
+
+    let inactive = 1 - (prev.active & 1);
+    let base = inactive * FEATURE_COUNT;
+
+    for (i, bound) in new_bounds.iter().enumerate() {
+        bounds_map.set(base + i as u32, *bound, 0)?;
+    }
+
+    let expiry_ns = if ttl_ns == 0 {
+        0
+    } else {
+        monotonic_ns().saturating_add(ttl_ns)
+    };
+
+    let next = BoundaryMeta {
+        version: prev.version.wrapping_add(1),
+        active: inactive,
+        expiry_ns,
+    };
+    // Single set => atomic active-bank flip.
+    meta_map.set(0, next, 0)?;
+
+    Ok(())
+}
+
+/// Path B: update only the kernel decision threshold (ModelConfig.threshold),
+/// preserving the rest of the config.
+pub fn update_score_threshold(
+    config_map: &mut Array<&mut MapData, ModelConfig>,
+    new_threshold: i32,
+) -> anyhow::Result<()> {
+    let mut cfg = config_map.get(0, 0)?;
+    cfg.threshold = new_threshold;
+    config_map.set(0, cfg, 0)?;
     Ok(())
 }

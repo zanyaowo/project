@@ -40,17 +40,37 @@ pub struct ScoreResult {
     pub action: u32,
 }
 
-/// Ring buffer event: raw feature values for clearly-BENIGN flows.
-/// Consumed by boundary_updater for Path A (feature drift) and Path B (score drift).
-/// numer[i]/denom[i] approximates the ratio value for feature i.
+/// flags bit: sample passed kernel BENIGN gate (score*2 < threshold).
+/// Only flagged samples feed the reference sketch (S_ref).
+pub const STATS_FLAG_BENIGN_GATE: u32 = 0x01;
+
+/// Ring buffer event: raw feature values for sampled flows.
+/// Consumed by boundary_updater. numer[i]/denom[i] approximates the ratio
+/// value for feature i. `flags` decides whether the sample is eligible for
+/// the reference sketch (S_ref) or only the live sketch (S_live).
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct StatsEvent {
     pub numer: [u32; FEATURE_COUNT_USIZE],
     pub denom: [u32; FEATURE_COUNT_USIZE],
     pub score: i32,
-    pub _pad: u32,
+    pub flags: u32,
 }
 
 #[cfg(feature = "user")]
 unsafe impl aya::Pod for StatsEvent {}
+
+/// Versioned metadata for double-buffered boundary banks.
+/// `active` selects which bank of QUANTILE_BOUNDS the datapath reads
+/// (bank base offset = active * FEATURE_COUNT). Userspace writes the
+/// inactive bank then flips `active` atomically (single set).
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct BoundaryMeta {
+    pub version: u32,
+    pub active: u32,
+    pub expiry_ns: u64,
+}
+
+#[cfg(feature = "user")]
+unsafe impl aya::Pod for BoundaryMeta {}

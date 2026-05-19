@@ -2,16 +2,20 @@ use anyhow::Result;
 use aya::include_bytes_aligned;
 use aya::maps::HashMap;
 use std::net::Ipv4Addr;
+use std::sync::Arc;
 
 use firewall_common::session::{SessionKey, SessionValue};
 
+use crate::lib::config::Config;
 use crate::lib::controller::FirewallController;
 
 #[tokio::test]
+#[ignore = "requires Linux + eBPF + root + a real NIC; run explicitly"]
 pub async fn test_session_tracking() -> Result<()> {
     let bytecode = include_bytes_aligned!(env!("FIREWALL_BPF"));
-    let mut controller = FirewallController::load(bytecode)?;
-    controller.attach("wlp3s0")?; // Attached for unit testing
+    let config = Arc::new(Config::default());
+    let mut controller = FirewallController::load(bytecode, config)?;
+    controller.attach_xdp("wlp3s0")?; // Attached for integration testing
 
     // Loop a few times to see if any sessions are created
     for i in 0..5 {

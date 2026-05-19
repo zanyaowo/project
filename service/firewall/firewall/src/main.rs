@@ -1,9 +1,11 @@
+use crate::lib::boundary_updater::BoundaryUpdater;
 use crate::lib::config::Config;
 use crate::lib::controller::FirewallController;
 use crate::lib::logger::Logger;
 use crate::lib::model_loader::load_model;
 use aya::include_bytes_aligned;
 use aya::maps::{Array, PerCpuHashMap, RingBuf};
+use firewall_common::model::BoundaryMeta;
 use log::warn;
 use std::sync::Arc;
 
@@ -41,6 +43,8 @@ async fn main() -> Result<(), anyhow::Error> {
     let mut score_table_data = None;
     let mut quantile_table_data = None;
     let mut model_config_data = None;
+    let mut stats_ring_data = None;
+    let mut boundary_meta_data = None;
 
     for (name, map) in controller.maps_mut() {
         match name {
@@ -49,6 +53,8 @@ async fn main() -> Result<(), anyhow::Error> {
             "SCORE_TABLE" => score_table_data = Some(map),
             "QUANTILE_BOUNDS" => quantile_table_data = Some(map),
             "MODEL_CONFIG" => model_config_data = Some(map),
+            "STATS_RING_BUF" => stats_ring_data = Some(map),
+            "BOUNDARY_META" => boundary_meta_data = Some(map),
             _ => {}
         }
     }
@@ -60,12 +66,18 @@ async fn main() -> Result<(), anyhow::Error> {
         quantile_table_data.ok_or_else(|| anyhow::anyhow!("QUANTILE_BOUNDS map not found"))?;
     let model_config_map =
         model_config_data.ok_or_else(|| anyhow::anyhow!("MODEL_CONFIG map not found"))?;
+    let stats_ring_map =
+        stats_ring_data.ok_or_else(|| anyhow::anyhow!("STATS_RING_BUF map not found"))?;
+    let boundary_meta_map =
+        boundary_meta_data.ok_or_else(|| anyhow::anyhow!("BOUNDARY_META map not found"))?;
 
     let session_table = PerCpuHashMap::try_from(session_map)?;
     let event_ring_buf = RingBuf::try_from(event_map)?;
     let mut score_table = Array::try_from(score_map)?;
     let mut quantile_bounds_table = Array::try_from(quantile_bounds_map)?;
     let mut model_config_table = Array::try_from(model_config_map)?;
+    let stats_ring_buf = RingBuf::try_from(stats_ring_map)?;
+    let boundary_meta_table: Array<_, BoundaryMeta> = Array::try_from(boundary_meta_map)?;
 
     if config.model.enabled {
         load_model(
@@ -78,7 +90,19 @@ async fn main() -> Result<(), anyhow::Error> {
     }
 
     let mut logger = Logger::new(event_ring_buf, session_table, config.clone())?;
-    logger.start().await?;
+    let mut updater = BoundaryUpdater::new(
+        stats_ring_buf,
+        quantile_bounds_table,
+        boundary_meta_table,
+        model_config_table,
+        config.clone(),
+    );
+
+    // Logger and the calibration layer run concurrently. (v1's plan to
+    // spawn the updater inside controller.load() is infeasible under aya's
+    // borrow model — load() cannot spawn a task borrowing maps from the
+    // Ebpf it returns; concurrent run here is the correct adaptation.)
+    tokio::try_join!(logger.start(), updater.run())?;
 
     Ok(())
 }

@@ -10,5 +10,10 @@ pub const IPPROTO_ICMP_V6: u8 = 58;
 pub const IPPROTO_TCP: u8 = 6;
 pub const IPPROTO_UDP: u8 = 17;
 
+// adaptive boundary update
+pub const STATS_BATCH_SIZE: usize = 1000;
+pub const STATS_SAMPLE_SHIFT: u32 = 4; // kernel 取樣率：1<<4 取 1
+pub const BOUNDARY_BANK_COUNT: u32 = 2; // double buffering
+
 // eBPF Map size
 core::include!(core::concat!(env!("OUT_DIR"), "/map_sizes.rs"));

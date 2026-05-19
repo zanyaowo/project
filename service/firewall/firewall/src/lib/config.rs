@@ -12,6 +12,7 @@ pub struct Config {
     pub log: LogConfig,
     pub maps: MapsConfig,
     pub model: ModelSetting,
+    pub adaptive: BoundaryAdaptConfig,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -56,6 +57,20 @@ pub struct ModelSetting {
     pub hot_reload: bool,
 }
 
+#[derive(Deserialize, Clone, Debug)]
+pub struct BoundaryAdaptConfig {
+    pub enabled: bool,
+    pub batch_size: usize,
+    pub sample_shift: u32,
+    pub ewma_alpha: f64,
+    pub minor_drift_ratio: f64,
+    pub major_drift_ratio: f64,
+    pub score_drift_ratio: f64,
+    pub divergence_threshold: f64,
+    pub high_risk_rate_jump: f64,
+    pub boundary_ttl_secs: u64,
+}
+
 impl Config {
     pub fn from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         let contents = fs::read_to_string(path)?;
@@ -90,6 +105,18 @@ impl Config {
                 model_file: "model.json".to_string(),
                 action: "log".to_string(),
                 hot_reload: false,
+            },
+            adaptive: BoundaryAdaptConfig {
+                enabled: true,
+                batch_size: 1000,
+                sample_shift: 4,
+                ewma_alpha: 0.20,
+                minor_drift_ratio: 0.20,
+                major_drift_ratio: 0.50,
+                score_drift_ratio: 0.05,
+                divergence_threshold: 0.30,
+                high_risk_rate_jump: 2.0,
+                boundary_ttl_secs: 600,
             },
         }
     }
