@@ -43,7 +43,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
         with:
-          targets: bpfel-unknown-none
+          # bpfel-unknown-none is tier-3 (no prebuilt rust-std); the build
+          # uses -Z build-std=core, so only rust-src is needed. Requesting
+          # the target via rustup fails ("rust-std ... unavailable").
           components: rust-src
       - uses: Swatinem/rust-cache@v2
         with:
@@ -83,6 +85,9 @@ jobs:
   audit:
     name: Security audit
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
     steps:
       - uses: actions/checkout@v4
       - uses: rustsec/audit-check@v2
