@@ -61,7 +61,7 @@ pub fn batch_quantile(values: &[(u32, u32)], q: f64) -> f64 {
         .iter()
         .map(|(n, d)| *n as f64 / (*d as f64 + 1.0))
         .collect();
-    ratios.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    ratios.sort_by(f64::total_cmp);
     let idx = ((q * (ratios.len() - 1) as f64) as usize).min(ratios.len() - 1);
     ratios[idx]
 }
@@ -160,7 +160,6 @@ pub struct BoundaryUpdater<'a> {
     current_bounds: [f64; FEATURE_COUNT_USIZE],
     current_threshold: f64,
     high_risk_rate_ewma: f64,
-    seeded: bool,
 }
 
 impl<'a> BoundaryUpdater<'a> {
@@ -184,7 +183,6 @@ impl<'a> BoundaryUpdater<'a> {
             current_bounds: [0.0; FEATURE_COUNT_USIZE],
             current_threshold: 0.0,
             high_risk_rate_ewma: 0.0,
-            seeded: false,
         }
     }
 
@@ -199,7 +197,6 @@ impl<'a> BoundaryUpdater<'a> {
         if let Ok(cfg) = self.config_map.get(0, 0) {
             self.current_threshold = cfg.threshold as f64;
         }
-        self.seeded = true;
     }
 
     fn ingest(&mut self, ev: &StatsEvent) {
