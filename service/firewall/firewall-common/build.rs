@@ -51,7 +51,7 @@ fn main() {
 }
 
 fn parse_map_sizes(contents: &str) -> (u32, u32, u32, u32, u32, u32, u32, u32) {
-    let value: toml::Value = toml::from_str(&contents).unwrap();
+    let value: toml::Value = toml::from_str(contents).unwrap();
     let maps = &value["maps"];
 
     (
