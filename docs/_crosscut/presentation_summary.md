@@ -291,5 +291,5 @@ bpf_map_update_elem()  ← 無需重新載入 eBPF 程式
 
 ---
 
-*完整實驗記錄：`docs/feature_selection_log.md`（特徵選擇 Run 01–16,18）＋ `docs/quantile_bucket_strategy_log.md`（分位桶/訓練 Run 17,19–29）*  
-*架構規格：`docs/kernel_defense_architecture.md`*
+*完整實驗記錄：`docs/1_sensing/feature_selection_log.md`（特徵選擇 Run 01–16,18）＋ `docs/2_decision/quantile_bucket_strategy_log.md`（分位桶/訓練 Run 17,19–29）*  
+*架構規格：`docs/_crosscut/kernel_defense_architecture.md`*

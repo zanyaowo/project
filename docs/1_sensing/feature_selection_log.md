@@ -1061,7 +1061,7 @@ LOIC-UDP 的 `Sym_Ratio` 中位數極大（純 UDP 洪水，無任何回應，Bw
 
 ### Run 17 — 2026-04-05（分位數整數化比率特徵，eBPF kernel 可行性）
 
-> 📦 已移至 [`quantile_bucket_strategy_log.md`](quantile_bucket_strategy_log.md)（分位桶策略 / 模型訓練線）。
+> 📦 已移至 [`quantile_bucket_strategy_log.md`](../2_decision/quantile_bucket_strategy_log.md)（分位桶策略 / 模型訓練線）。
 
 ### Run 18 — 2026-04-17（Bytes_Sum 增益驗證）
 
@@ -1104,7 +1104,7 @@ LOIC-UDP 的 `Sym_Ratio` 中位數極大（純 UDP 洪水，無任何回應，Bw
 
 ### Run 19 — 2026-04-17（混合 BENIGN 訓練：CIC + BigFlow） ／ Shape_Ratio 特徵退化分析 ／ BigFlow-NIDS-V2 跨資料集驗證
 
-> 📦 已移至 [`quantile_bucket_strategy_log.md`](quantile_bucket_strategy_log.md)。
+> 📦 已移至 [`quantile_bucket_strategy_log.md`](../2_decision/quantile_bucket_strategy_log.md)。
 
 ### 附錄：正確時序最終結果彙整（2026-04-10 全面重跑）
 
@@ -1150,7 +1150,7 @@ LOIC-UDP 的 `Sym_Ratio` 中位數極大（純 UDP 洪水，無任何回應，Bw
 
 ## 最終特徵決策（2026-04-18） ／ Run 20–26
 
-> 📦 Run 20、21、22、23、24、25、26 與「最終特徵決策（2026-04-18）」已移至 [`quantile_bucket_strategy_log.md`](quantile_bucket_strategy_log.md)。
+> 📦 Run 20、21、22、23、24、25、26 與「最終特徵決策（2026-04-18）」已移至 [`quantile_bucket_strategy_log.md`](../2_decision/quantile_bucket_strategy_log.md)。
 
 ## 附錄：概念說明與問題記錄
 
@@ -1278,4 +1278,4 @@ df = get_balance_sample_from_files(paths, min_samples=2000)
 
 ### A-10 / A-11 / A-12 ／ Run 27 / Run 28 / Run 29（分位桶跨環境、邊界 overfit、contract 對照矩陣、HOIC 替代）
 
-> 📦 已移至 [`quantile_bucket_strategy_log.md`](quantile_bucket_strategy_log.md)。Run 28/29 contract 證據鏈現於該檔。
+> 📦 已移至 [`quantile_bucket_strategy_log.md`](../2_decision/quantile_bucket_strategy_log.md)。Run 28/29 contract 證據鏈現於該檔。

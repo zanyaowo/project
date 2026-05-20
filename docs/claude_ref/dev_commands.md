@@ -46,7 +46,7 @@ uv run --project service/model python -c \
 
 ```bash
 cargo check --manifest-path service/firewall/Cargo.toml
-# verifier 錯誤對照：docs/kernel_defense_architecture.md § eBPF 計算限制清單
+# verifier 錯誤對照：docs/_crosscut/kernel_defense_architecture.md § eBPF 計算限制清單
 ```
 
 ---

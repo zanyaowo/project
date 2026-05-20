@@ -6,7 +6,7 @@ XDP（特徵提取、黑名單）→ TC（分位桶推論、限流）→ Rust Us
 
 > 現況唯一推論層是 eBPF fast-path；Rust userspace 只做 logging + adaptive boundary，**無 runtime IF**。離線 IF 在 `service/model/`（訓練/蒸餾/實驗），未與 runtime 接通。Layer 2（邊緣案例完整 IF）為設計目標，集成計畫待撰寫（文件尚未建立）。
 
-**唯一架構依據：** `docs/kernel_defense_architecture.md`
+**唯一架構依據：** `docs/_crosscut/kernel_defense_architecture.md`
 （eBPF verifier 限制、分位桶 N=2 決策、AUC 數字、數學模型均在此）
 
 ---
@@ -55,9 +55,9 @@ XDP（特徵提取、黑名單）→ TC（分位桶推論、限流）→ Rust Us
 | 函式導覽、資料夾用途、抽樣方法選擇 | `docs/claude_ref/codebase_map.md` |
 | 執行命令、驗證 checklist、資料路徑 | `docs/claude_ref/dev_commands.md` |
 | 歷史失敗案例（9 則）| `docs/claude_ref/failure_records.md` |
-| 架構決策、eBPF verifier 限制 | `docs/kernel_defense_architecture.md` |
-| 特徵選擇實驗（Run 01–16,18、附錄 A-1～A-9） | `docs/feature_selection_log.md` |
-| 分位桶策略/模型訓練（Run 17,19–29、A-10/11/12）；contract 不一致見 Run 28/29 | `docs/quantile_bucket_strategy_log.md` |
+| 架構決策、eBPF verifier 限制 | `docs/_crosscut/kernel_defense_architecture.md` |
+| 特徵選擇實驗（Run 01–16,18、附錄 A-1～A-9） | `docs/1_sensing/feature_selection_log.md` |
+| 分位桶策略/模型訓練（Run 17,19–29、A-10/11/12）；contract 不一致見 Run 28/29 | `docs/2_decision/quantile_bucket_strategy_log.md` |
 
 ---
 

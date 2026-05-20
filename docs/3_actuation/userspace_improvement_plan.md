@@ -683,8 +683,8 @@ SessionKey { src: 192.168.1.100:12345, dst: 8.8.8.8:443, proto: TCP }
 
 ## 相關文件
 
-- [Code Quality Review](./code_quality_review_2026-02-21.md) - eBPF 與 common 程式碼審查
-- [PacketInfo Redesign Proposal](./packetinfo_redesign_proposal.md) - 封包解析架構設計
+- Code Quality Review（2026-02-21）— 已整合至本檔頂部摘要
+- [PacketInfo Redesign Proposal](../archive/packetinfo_redesign_proposal.md) - 封包解析架構設計
 
 ---
 
