@@ -5,6 +5,7 @@ use crate::lib::logger::Logger;
 use crate::lib::model_loader::load_model;
 use aya::include_bytes_aligned;
 use aya::maps::{Array, PerCpuHashMap, RingBuf};
+use clap::Parser;
 use firewall_common::model::BoundaryMeta;
 use log::warn;
 use std::sync::Arc;
@@ -12,12 +13,58 @@ use std::sync::Arc;
 mod lib;
 mod tests;
 
+#[derive(Parser)]
+#[command(name = "firewall", about = "eBPF-based DDoS detection firewall")]
+struct Cli {
+    /// Config file path
+    #[arg(short, long, default_value = "config.toml")]
+    config: String,
+
+    /// Override network interface from config
+    #[arg(short, long)]
+    iface: Option<String>,
+
+    /// Override log level from config (trace / debug / info / warn / error)
+    #[arg(short = 'L', long)]
+    log_level: Option<String>,
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = tokio::signal::ctrl_c();
+
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::SignalKind;
+        let mut sigterm = tokio::signal::unix::signal(SignalKind::terminate())
+            .expect("failed to install SIGTERM handler");
+        tokio::select! {
+            _ = ctrl_c => {}
+            _ = sigterm.recv() => {}
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = ctrl_c.await;
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    let config: Config = Config::from_file("config.toml").unwrap_or_else(|e| {
-        warn!("Failed to load config: {}", e);
+    let cli = Cli::parse();
+
+    let mut config: Config = Config::from_file(&cli.config).unwrap_or_else(|e| {
+        warn!("Failed to load config from {}: {}", cli.config, e);
         Config::default()
     });
+
+    if let Some(iface) = cli.iface {
+        config.network.interface = iface;
+    }
+    if let Some(level) = cli.log_level {
+        config.log.log_level = level;
+    }
+
     let config = Arc::new(config);
 
     env_logger::Builder::from_env(
@@ -102,7 +149,23 @@ async fn main() -> Result<(), anyhow::Error> {
     // spawn the updater inside controller.load() is infeasible under aya's
     // borrow model — load() cannot spawn a task borrowing maps from the
     // Ebpf it returns; concurrent run here is the correct adaptation.)
-    tokio::try_join!(logger.start(), updater.run())?;
+    tokio::select! {
+        res = tokio::try_join!(logger.start(), updater.run()) => { res?; }
+        _ = shutdown_signal() => {
+            log::info!("Shutdown signal received");
+        }
+    }
 
+    // Drop map borrows before touching controller for TC cleanup.
+    drop(logger);
+    drop(updater);
+
+    if config.network.enable_tc {
+        if let Err(e) = controller.detach_tc(iface) {
+            log::warn!("TC cleanup failed (qdisc may already be gone): {e}");
+        }
+    }
+
+    log::info!("Shutdown complete");
     Ok(())
 }

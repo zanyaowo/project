@@ -1,10 +1,12 @@
 use anyhow::Context;
 use aya::maps::Array;
+use aya::maps::HashMap;
 use aya::maps::Map;
 use aya::programs::{tc, SchedClassifier, Xdp, XdpFlags};
 use aya::Ebpf;
 use aya_log::EbpfLogger;
 use log::warn;
+use std::net::Ipv4Addr;
 use std::sync::Arc;
 
 use crate::lib::config::{Config, XdpMode};
@@ -68,6 +70,44 @@ impl FirewallController {
         program.load().context("failed to load tc program")?;
         program.attach(iface, aya::programs::TcAttachType::Egress)?;
         Ok(())
+    }
+
+    pub fn detach_tc(&mut self, iface: &str) -> anyhow::Result<()> {
+        tc::qdisc_del_clsact(iface).context("failed to remove clsact qdisc")?;
+        Ok(())
+    }
+
+    pub fn block_ip(&mut self, ip: Ipv4Addr) -> anyhow::Result<()> {
+        let map = self
+            .bpf
+            .map_mut("BLOCK_LIST")
+            .context("BLOCK_LIST not found")?;
+        let mut block_map: HashMap<_, u32, u32> = HashMap::try_from(map)?;
+        block_map.insert(u32::from(ip), 1u32, 0)?;
+        Ok(())
+    }
+
+    pub fn unblock_ip(&mut self, ip: Ipv4Addr) -> anyhow::Result<()> {
+        let map = self
+            .bpf
+            .map_mut("BLOCK_LIST")
+            .context("BLOCK_LIST not found")?;
+        let mut block_map: HashMap<_, u32, u32> = HashMap::try_from(map)?;
+        block_map.remove(&u32::from(ip))?;
+        Ok(())
+    }
+
+    pub fn list_blocked(&mut self) -> anyhow::Result<Vec<Ipv4Addr>> {
+        let map = self
+            .bpf
+            .map_mut("BLOCK_LIST")
+            .context("BLOCK_LIST not found")?;
+        let block_map: HashMap<_, u32, u32> = HashMap::try_from(map)?;
+        let ips = block_map
+            .iter()
+            .filter_map(|r| r.ok().map(|(ip, _)| Ipv4Addr::from(ip)))
+            .collect();
+        Ok(ips)
     }
 
     pub fn get_mut_map(&mut self, name: &str) -> Option<&mut Map> {
