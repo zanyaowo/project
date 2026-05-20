@@ -69,6 +69,42 @@
 
 ---
 
+## 6. Code Review 修復清單（2026-05-20）
+
+> 來源：全專案 code review。🔴 Critical / 🟠 Bug / 🟡 Design / 🟢 Minor
+
+### eBPF Kernel（firewall-ebpf）
+
+| 狀態 | 嚴重 | 任務 | 位置 |
+|------|------|------|------|
+| `[ ]` | 🔴 | **SYN cookie ACK 驗證反向**：`if cookie != tcp.ack_seq + 1` 應改為 `if tcp.ack_seq.wrapping_sub(1) != cookie`（現況永遠 DROP 合法連線） | `firewall-ebpf/src/main.rs:67` |
+| `[ ]` | 🟠 | **BLOCK_LIST 對 SYN 封包無效**：`is_blocked` 在 SYN cookie return 之後才執行；應將封鎖檢查移至 SYN cookie 邏輯之前 | `firewall-ebpf/src/main.rs:55-75` |
+| `[ ]` | 🟠 | **TCP checksum 缺少 data-offset nibble**：`update_checksum(csum, SYN_FLAG, SYN_ACK_FLAG)` 未帶入 byte 12-13 的 data-offset 欄；應讀取實際 16-bit word 作為 old_val | `firewall-ebpf/src/syn_cookie.rs:102` |
+| `[ ]` | 🟠 | **`pkt_sum_sq` 無 saturating 保護**：`pkt_sum_sq += params.len * params.len` 對高流量 session 會 overflow；改用 `saturating_add` + `saturating_mul` | `firewall-ebpf/src/table.rs:92, 105` |
+| `[ ]` | 🟡 | **TC egress 重複手動 L4 提取**：`From<&PacketInfo> for SessionUpdateParams` 已實作，TC path 應改用 `SessionUpdateParams::from(&pkt)` | `firewall-ebpf/src/main.rs:110-126` |
+| `[ ]` | 🟡 | **`DROP_EVENTS` 計數器未曝出**：ring buffer 滿載 drop 數寫入但 userspace 從未讀取，無法觀測背壓；應在 logger 週期性 log | `firewall-ebpf/src/collector.rs:11` |
+| `[ ]` | 🟢 | 多餘括號：`if ((*session).max_pkt_len < ...)` → 去括號 | `firewall-ebpf/src/table.rs:97, 108` |
+| `[ ]` | 🟢 | 冗贅變數：`let mut is_close = false; is_close = ...` → `let is_close = ...` | `firewall-ebpf/src/table.rs:116-117` |
+| `[ ]` | 🟢 | 不必要 unsafe block：`unsafe { try_xdp_firewall(ctx) }` 中 `try_xdp_firewall` 為 safe fn | `firewall-ebpf/src/main.rs:25` |
+
+### Userspace（firewall）
+
+| 狀態 | 嚴重 | 任務 | 位置 |
+|------|------|------|------|
+| `[ ]` | 🔴 | **`kill_old_sessions` 時鐘不相容**：`SystemTime::now()` 是 UNIX epoch，`last_seen_ts` 來自 `bpf_ktime_get_ns()` 是 CLOCK_BOOTTIME；差距是系統開機以來的時間，所有 session 被立刻視為過期刪除。應改用 `libc::clock_gettime(CLOCK_BOOTTIME, ...)` 且確認是否要整合進 main.rs | `firewall/src/lib/task.rs:12-28` |
+| `[ ]` | 🟡 | **`MapsConfig` 執行期值無作用**：BPF map 大小由 build.rs 編譯期決定，runtime config 中這 3 個欄位不影響任何 map。應加文件說明「需重新編譯才能生效」 | `firewall/src/lib/config.rs:46-50` |
+| `[ ]` | 🟢 | 多餘括號：`if (config.security.enable_random_secret)` → 去括號 | `firewall/src/lib/controller.rs:29` |
+
+### Python（service/model）
+
+| 狀態 | 嚴重 | 任務 | 位置 |
+|------|------|------|------|
+| `[ ]` | 🟡 | **`_feature_ratio_components` 靜默 fallback**：無 `Packet Length Sum Sq` 欄位時靜默切換計算路徑，不發警告；兩路徑數值不完全等價，應加 `warnings.warn` | `pipeline/distill.py:106-127` |
+| `[ ]` | 🟡 | **`get_mixed_normal_sample` 靜默降級為單一來源**：某個 source 無 BENIGN 資料時靜默跳過，可能用單一資料集算邊界而不警告（違反 Mixed BENIGN 設計）；應在 chunks 數量不足時發警告 | `data/sample.py:229-230` |
+| `[ ]` | 🟢 | `RAW_COLS = []` 和 `NUMERIC_RAW_COLS = []` 是空的死欄位 | `schema.py:3-4` |
+
+---
+
 ## 實驗清單（特徵工程 Run 01–32）
 
 > `[x]` 已完成並記錄、`[-]` 已寫腳本待跑、`[ ]` 規劃中
