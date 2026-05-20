@@ -20,9 +20,10 @@
 
 | 檔案 | 內容 | 重疊關係 |
 |------|------|---------|
-| `feature_selection_log.md` | Run 01–29 特徵選擇完整 log（canonical ref，2211 行）| 主來源 |
-| `presentation_summary.md` | 特徵工程研究總結（簡報用，Run 01–26）| 多為 `feature_selection_log` 摘要 |
-| `iTree_training_report.md` | Isolation Forest 訓練報告（Run 25）| 與上兩者敘事重疊；屬論文交付物，刻意不合併 |
+| `feature_selection_log.md` | 特徵選擇實驗（Run 01–16,18 + 附錄 A-1～A-9） | 主來源；分位桶/訓練線已抽出 |
+| `quantile_bucket_strategy_log.md` | 分位桶策略 / 模型訓練（Run 17,19–29 + A-10/11/12，含 contract Run 28/29） | 由 `feature_selection_log` 實體抽出；Run 編號連續共用 |
+| `presentation_summary.md` | 特徵工程研究總結（簡報用） | 摘要橫跨上兩份 log |
+| `iTree_training_report.md` | Isolation Forest 訓練報告（Run 25）| 屬論文交付物，刻意不合併 |
 
 ## 圖（Graphviz）
 

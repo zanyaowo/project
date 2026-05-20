@@ -344,7 +344,8 @@ uv run --project service/model \
 | 文件 | 內容 |
 |------|------|
 | `docs/kernel_defense_architecture.md` | eBPF 架構、分位桶決策、AUC 數字、蒸餾策略 |
-| `docs/feature_selection_log.md` | Run 01–26 特徵選擇實驗記錄 + 概念說明附錄 |
+| `docs/feature_selection_log.md` | 特徵選擇實驗（Run 01–16,18 + 附錄 A-1～A-9） |
+| `docs/quantile_bucket_strategy_log.md` | 分位桶策略/模型訓練（Run 17,19–29 + A-10/11/12，contract Run 28/29） |
 | `docs/claude_ref/codebase_map.md` | 函式導覽、資料夾用途、抽樣方法選擇 |
 | `docs/claude_ref/dev_commands.md` | 常用命令、驗證 checklist、資料路徑 |
 | `docs/claude_ref/failure_records.md` | 歷史失敗案例 |

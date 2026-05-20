@@ -127,6 +127,53 @@ CLI 入口，呼叫對應 Trainer 並儲存 bundle 至 `model_store/`。
 
 ---
 
+## service/firewall/ — Rust 防火牆（eBPF datapath + userspace）
+
+> 三個 crate：`firewall-common`（no_std 共用型別）、`firewall-ebpf`（XDP/TC datapath）、`firewall`（userspace 控制面）。修改前先查此節，勿重造已有 map/函式。
+
+### firewall-common/（no_std 共用）
+
+| 檔案 | 內容 |
+|------|------|
+| `src/model.rs` | `QuantileBound`（value/numer/denom）、`ModelConfig`（enabled/threshold/action）、`ScoreResult`、`StatsEvent`（numer[5]/denom[5]/score/`flags`；`STATS_FLAG_BENIGN_GATE` bit）、`BoundaryMeta`（version/active/expiry_ns，double-buffer 用）；`FEATURE_COUNT=5`、`BUCKET_COUNT=2`、`SCORE_TABLE_SIZE=32` |
+| `src/constants.rs` | 協定常數；`STATS_BATCH_SIZE`、`STATS_SAMPLE_SHIFT`、`BOUNDARY_BANK_COUNT`；eBPF map size 由 `build.rs` 生成後 `include!` |
+| `src/session.rs` | `SessionKey`、`SessionValue`、`SessionEvent`（RingBuf 事件，帶 `score`）|
+| `src/protocol.rs` | `L4Info` 等 L4 解析型別 |
+| `build.rs` | `parse_map_sizes()` 讀 `firewall/config.toml` `[maps]` → 生成 `*_SIZE` 常數（含 `STATS_RING_BUF_SIZE`、`BOUNDARY_META_SIZE`）|
+
+### firewall-ebpf/（datapath，bpfel-unknown-none）
+
+| 檔案 | 函式 / map | 作用 |
+|------|-----------|------|
+| `src/scorer.rs` | `score_session(val,key) -> Option<ScoreResult>` | 5 特徵各 1-bit 比較組 0..31 index → `SCORE_TABLE` 查分；`>= threshold` 則 action |
+| | `active_bank_base()` | 讀 `BOUNDARY_META` 決定使用哪個 bank（雙緩衝），含 TTL 過期回退 bank 0 |
+| | maps | `QUANTILE_BOUNDS`(2 bank)、`SCORE_TABLE`、`MODEL_CONFIG`、`BOUNDARY_META`、`STATS_RING_BUF`、`STATS_SAMPLE_CTR` |
+| `src/parser.rs` | `PacketInfo` struct、`PacketContext` trait（`impl` for `XdpContext`/`TcContext`）、`parse_ipv4`/`parse_ipv6` | 統一 XDP/TC 封包解析（提案 `archive/packetinfo_redesign_proposal.md` 已由此實作）|
+| `src/table.rs` | `SESSIONS`(LruPerCpuHashMap)、`update_session(SessionUpdateParams)` | 雙向 session 聚合、統計更新 |
+| `src/collector.rs` | `EVENTS_POOL`(RingBuf)、`submit_event()`、`DROP_EVENTS` | 把 SessionEvent 送回 userspace；溢出計數 |
+| `src/syn_cookie.rs` | SYN cookie ACK 驗證、`SECRET_KEY` | — |
+| `src/blocker.rs` | `BLOCK_LIST` 查詢 | 黑名單命中 |
+| `src/main.rs` | `xdp_firewall` / `tc_egress` 入口 | — |
+
+### firewall/（userspace 控制面，tokio）
+
+| 檔案 | 函式 / 型別 | 作用 |
+|------|-----------|------|
+| `src/lib/config.rs` | `Config`（network/security/log/maps/model/`adaptive`）、`BoundaryAdaptConfig`、`from_file()`/`default()` | TOML 設定 |
+| `src/lib/controller.rs` | `FirewallController::load/attach_xdp/attach_tc/maps_mut` | 載入 bytecode、初始化 `SECRET_KEY`、附加程式 |
+| `src/lib/model_loader.rs` | `load_model()`、`validate_model_contract()` | 讀 model.json（disable→寫 maps→enable）|
+| | `write_boundary_version()` | 寫 inactive bank → 原子翻轉 `BoundaryMeta.active`（CLOCK_MONOTONIC TTL）|
+| | `update_score_threshold()` | Path B：只改 `ModelConfig.threshold` |
+| `src/lib/boundary_updater.rs` | `BoundaryUpdater`（dual-sketch + gate state machine）；`run()` 消費 `STATS_RING_BUF` | 自適應分位桶校準 |
+| | 純函式：`batch_quantile`/`score_quantile`/`ema`/`drift_ratio`/`divergence`/`decide_gate`/`encode_bound`/`decode_bound`；`GateState{Normal,Uncertain,AttackFreeze}` | host 可測；S_ref/S_live 雙草圖判定 |
+| `src/lib/logger.rs` | `Logger::start()` | 消費 EVENTS_POOL、跨 CPU 聚合、log |
+| `src/lib/task.rs` | `kill_old_sessions()` | 依協定/時間清過期 session |
+| `src/main.rs` | wiring | `tokio::try_join!(logger.start(), updater.run())` 併發 |
+
+> 設計脈絡見 `docs/boundary_adaptive_update_plan.md`（v2 dual-sketch + gated，§11 落地紀錄）與 `docs/kernel_model_contract.md`（蒸餾↔loader↔scorer 契約）。
+
+---
+
 ## docs/claude_ref/ — Claude 專用參考
 
 | 檔案 | 內容 |
@@ -137,8 +184,16 @@ CLI 入口，呼叫對應 Trainer 並儲存 bundle 至 `model_store/`。
 
 ## docs/
 
+> 完整角色分類索引見 `docs/README.md`。
+
 | 檔案 | 內容 |
 |------|------|
-| `kernel_defense_architecture.md` | 架構設計唯一依據（eBPF 限制、分位桶決策、AUC 數字） |
-| `feature_selection_log.md` | Run 01–17 + BigFlow 實驗記錄 |
-| `packetinfo_redesign_proposal.md` | PacketInfo 重構提案（歷史文件） |
+| `README.md` | docs 索引（canonical / 計畫 / 實驗報告 / 參考 / archive）|
+| `kernel_defense_architecture.md` | 架構設計唯一依據（eBPF 限制、分位桶決策、AUC 數字）|
+| `kernel_model_contract.md` | P0 工程契約：蒸餾 ↔ loader ↔ scorer 對齊 |
+| `feature_selection_log.md` | 特徵選擇實驗（Run 01–16,18 + 附錄 A-1～A-9）|
+| `quantile_bucket_strategy_log.md` | 分位桶策略 / 模型訓練（Run 17,19–29 + A-10/11/12，contract Run 28/29）|
+| `boundary_adaptive_update_plan.md` | 分位桶自適應更新 v2（dual-sketch + gated）|
+| `userspace_improvement_plan.md` | userspace 品質審查追蹤（持續更新）|
+| `iTree_training_report.md` / `presentation_summary.md` | IF 訓練報告 / 研究總結（論文素材，與 log 部分重疊）|
+| `archive/packetinfo_redesign_proposal.md` | 已被 `parser.rs` 實作取代（歷史）|

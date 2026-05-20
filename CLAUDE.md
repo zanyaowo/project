@@ -33,7 +33,7 @@ XDP（特徵提取、黑名單）→ TC（分位桶推論、限流）→ Rust Us
 | Run 25 證據（IF-direct；Protocol/PktLenMean raw、CV 未平方） | `A_run25_original` | 0.8888 | 0.4744 | 0.8125 | 0.9959 | 0.8769 | 0.8097 |
 | **實際部署（5-bit all-binary，32-entry）** | `D_current_5bit_contract` | 0.8833 | 0.2647 | **0.0001** | 0.9969 | 0.8756 | **0.6041** |
 
-> ⚠️ Run 25 那行**不是部署證據**。其 Protocol/PktLenMean 為 raw 連續值直接丟 IF（`table_size=None`），與實際全二值化 32-entry contract 是不同 model class（差異軸：Protocol/PktLenMean raw↔bit、CV↔CV²、BigFlow 正規化 +1e-6↔+1）。引用部署 AUC 必須用 `D` 那行——HOIC 已崩（0.0001），avg 僅 0.60。證據鏈見 `feature_selection_log.md` Run 28/29 與 `experiments/run28_contract_matrix.py:403`。
+> ⚠️ Run 25 那行**不是部署證據**。其 Protocol/PktLenMean 為 raw 連續值直接丟 IF（`table_size=None`），與實際全二值化 32-entry contract 是不同 model class（差異軸：Protocol/PktLenMean raw↔bit、CV↔CV²、BigFlow 正規化 +1e-6↔+1）。引用部署 AUC 必須用 `D` 那行——HOIC 已崩（0.0001），avg 僅 0.60。證據鏈見 `quantile_bucket_strategy_log.md` Run 28/29 與 `experiments/run28_contract_matrix.py:403`。
 
 ---
 
@@ -56,7 +56,8 @@ XDP（特徵提取、黑名單）→ TC（分位桶推論、限流）→ Rust Us
 | 執行命令、驗證 checklist、資料路徑 | `docs/claude_ref/dev_commands.md` |
 | 歷史失敗案例（9 則）| `docs/claude_ref/failure_records.md` |
 | 架構決策、eBPF verifier 限制 | `docs/kernel_defense_architecture.md` |
-| 特徵選擇實驗記錄（Run 01–29）；contract 不一致見 Run 28/29 | `docs/feature_selection_log.md` |
+| 特徵選擇實驗（Run 01–16,18、附錄 A-1～A-9） | `docs/feature_selection_log.md` |
+| 分位桶策略/模型訓練（Run 17,19–29、A-10/11/12）；contract 不一致見 Run 28/29 | `docs/quantile_bucket_strategy_log.md` |
 
 ---
 
