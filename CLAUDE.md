@@ -22,7 +22,9 @@ XDP（特徵提取、黑名單）→ TC（分位桶推論、限流）→ Rust Us
 | Sym_q | Total Fwd Pkts / Total Bwd Pkts | — |
 | Pkt_CV_sq | (Packet Length Std / Packet Length Mean)² | Pkt_CV_q（CV 未平方，僅存在於 Run 25 證據模型） |
 
-**訓練邊界來源：** Mixed BENIGN（CIC 15k + BigFlow 15k），N=2
+**訓練邊界來源：** CIC-IDS-2019 BENIGN only（03-11 files，N=2）
+
+> **當前評估範圍：CIC-IDS-2019**（2026-05-25 決策）。Mixed BENIGN 技術路徑已預留（`get_mixed_normal_sample` + `build_features`），待跨資料集泛化時啟用；目前不做 BigFlow / IDS2018 評估。
 
 **棄用 Shape_q 原因：** `Min Packet Length` 因 TCP ACK payload=0 退化為 Protocol 代理，跨環境無鑑別力
 
@@ -44,7 +46,8 @@ XDP（特徵提取、黑名單）→ TC（分位桶推論、限流）→ Rust Us
 - Train = `03-11`（2018-11-03）**必須早於** Test = `01-12`（2018-12-01）；反轉即為資料洩漏
 - `clean_and_save()` 之後不可再呼叫 `clean()`（資料已預處理）
 - 分位桶特徵不可再使用 `Shape_q`（Min/Fwd Mean）；一律改用 `FwdMax_q`（Max/Fwd Mean）
-- 分位桶邊界必須以 **Mixed BENIGN** 計算（`get_mixed_normal_sample` 或等效）；純 CIC 邊界已知對 BigFlow 嚴重 overfit
+- 分位桶邊界以 **CIC 2019 BENIGN**（`get_normal_sample_from_files`）計算；跨資料集泛化時需改用 `get_mixed_normal_sample`（CIC+BigFlow），純 CIC 邊界已知對 BigFlow 嚴重 overfit
+- **資料檔案不可整份讀入記憶體**（`pl.read_parquet(big_file)` 無欄位篩選 = OOM crash）；必須擇一：(1) `columns=` 只讀需要的欄位、(2) `pl.scan_parquet` lazy 後 `.collect()`、(3) `get_normal_sample_from_files` / `get_balance_sample_from_files` 等 per-file 抽樣函式；IDS2018 / BigFlow 單檔有 80+ 欄，無條件 column-prune
 
 ---
 

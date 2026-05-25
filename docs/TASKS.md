@@ -13,6 +13,10 @@
 | `[x]` | 🟡 | 移除 `ModelFeature` struct（已不存在於 `firewall-common/src/lib.rs`） | — |
 | `[ ]` | 🟢 | 實作 IPv6 封包解析（`parser.rs:215` 目前 `ETH_IPV6 => return Err(())`） | `firewall-ebpf/src/parser.rs:215` |
 | `[x]` | 🟢 | 補上 `unsafe` 程式碼的 safety invariant 說明（`parser.rs` 所有 `unsafe fn` 已有完整 SAFETY 說明）| `firewall-ebpf/src/parser.rs` |
+| `[x]` | 🔴 | **(2026-05-23)** eBPF verifier 通過：6 個阻塞性修補（詳見 `docs/_crosscut/issues/ebpf_verifier_pitfalls.md`） | `firewall-ebpf/src/main.rs`、`syn_cookie.rs`、`scorer.rs`、`table.rs` |
+| `[x]` | 🔴 | **(2026-05-23)** `tc_egress` 重構：body 移到 `tc_egress_impl(&ctx) -> i32` helper，回傳 scalar 隔離 register allocation；同時 inline 也消除 `Result<i32,()>` aggregate return | `firewall-ebpf/src/main.rs:31` |
+| `[x]` | 🔴 | **(2026-05-23)** `update_checksum` while loop 改 2 次 unrolled fold（unbounded while 撞 verifier 1M insn limit）| `firewall-ebpf/src/syn_cookie.rs:51` |
+| `[x]` | 🟠 | **(2026-05-23)** `scorer.rs` / `table.rs` 全面 `saturating_mul` → `wrapping_mul`（saturating 觸發 `__multi3` 在 BPF 缺 link）| `firewall-ebpf/src/scorer.rs`、`firewall-ebpf/src/table.rs` |
 
 ---
 
@@ -21,8 +25,12 @@
 | 狀態 | 嚴重 | 任務 | 位置 |
 |------|------|------|------|
 | `[ ]` | 🔴 | 評估 Run 29 `init_win_bit`（Init Fwd Win / Init Bwd Win 比值）是否整合進 eBPF scorer 取代 `protocol_bit`（Run 29 結論：單特徵 AUC=0.9995 for HOIC） | `firewall-ebpf/src/scorer.rs` + `distill_export.py` |
-| `[ ]` | 🟡 | 執行 Run 30 N-sweep（資料就緒後）：驗證多點分位桶對 HOIC / LOIC-HTTP 的改善效果 | `service/model/experiments/run30_n_sweep.py` |
-| `[ ]` | 🟡 | 根據 Run 30 結果更新 `distill_export.py`：若 N=4 variant 顯著優於 N=2，調整 contract 並重新蒸餾 `distilled_rules.json` | `pipeline/distill_export.py` |
+| `[x]` | 🟡 | 執行 Run 30 N-sweep（資料就緒後）：驗證多點分位桶對 HOIC / LOIC-HTTP 的改善效果（2026-05-23 完成） | `service/model/experiments/run30_n_sweep.py` |
+| `[x]` | 🟡 | **(2026-05-25)** Run 30 決策：N=4 avg AUC=0.8806 < N=2 avg AUC=0.8943，N=4 無顯著改善；維持 N=2 32-entry contract，`distill_export.py` 無需調整 | `pipeline/distill_export.py` |
+| `[x]` | 🔴 | **(2026-05-25)** `build_features` 實作 BigFlow→CIC 欄位映射（LONGEST_FLOW_PKT→FwdMax, IN_PKTS→TotalFwd, bucket→Std 等 7 欄）；CIC 路徑仍為 identity | `service/model/data/features.py` |
+| `[x]` | 🟡 | **(2026-05-25)** `get_mixed_normal_sample` 加 `read_cols` 選項；BigFlow source 透過 `BIGFLOW_READ_COLS` column-prune，繞過 schema 衝突且防 OOM | `service/model/data/sample.py` |
+| `[x]` | 🟡 | **(2026-05-23)** `service/firewall/firewall/src/data_format/model.json` 缺 contract 欄位且 `pkt_cv` 名稱錯誤；以 `distill_export_cic_only.py`（CIC-only stop-gap）重新產出 | `service/firewall/firewall/src/data_format/model.json` |
+| `[-]` | 🟡 | **(2026-05-25 暫緩)** Mixed BENIGN model.json：BigFlow 載入技術路徑已修復，但範圍限定 CIC 2019，暫不啟用；恢復條件：決定跨資料集泛化時 | `service/model/pipeline/distill_export.py` |
 | `[ ]` | 🟡 | 撰寫 Layer 2 Userspace 完整 IF 集成計畫文件（`docs/2_decision/layer2_integration_plan.md`，目前 CLAUDE.md / kernel_defense_architecture.md 有 3 處懸空引用） | `docs/2_decision/` |
 | `[ ]` | 🟢 | 更新 `docs/_crosscut/kernel_defense_architecture.md` 的 AUC 表：補入 Run 30 結果欄 | `docs/_crosscut/kernel_defense_architecture.md` |
 
@@ -39,7 +47,11 @@
 | `[x]` | 🟡 | 實作 `BLOCK_LIST` 動態管理（`block_ip` / `unblock_ip` / `list_blocked`）| `firewall/src/lib/controller.rs:80` |
 | `[x]` | 🟡 | 實作 SIGINT/SIGTERM graceful shutdown（`tokio::select!` + `shutdown_signal()`）| `firewall/src/main.rs` |
 | `[x]` | 🟡 | 實作 CLI（`--config` / `--iface` / `--log-level` 覆蓋）| `firewall/src/main.rs` |
-| `[ ]` | 🟢 | 補齊 metrics 輸出（sessions count, drop rate, boundary version）供監控使用 | `firewall/src/lib/logger.rs` |
+| `[x]` | 🔴 | **(2026-05-23)** 修補 TC clsact cleanup：aya 0.13.1 `qdisc_detach_program` 不清 qdisc，改用 `tc qdisc del dev <iface> clsact` 系統指令 | `firewall/src/lib/controller.rs:75` |
+| `[x]` | 🟡 | **(2026-05-23)** aya 0.13.1 API 遷移：`Array::get(N, 0)` → `get(&N, 0)`；`qdisc_del_clsact` → `qdisc_detach_program` | `firewall/src/lib/model_loader.rs`、`boundary_updater.rs`、`controller.rs` |
+| `[x]` | 🟡 | **(2026-05-23)** `tokio::try_join!` × `select!` 型別修正：Tokio 1.49 的 `try_join!` 已不是 Future，包進 `async {}` block | `firewall/src/main.rs:152` |
+| `[x]` | 🟢 | **(2026-05-25)** 補齊 metrics 輸出：logger 每 60s 週期輸出 sessions count、ring_drops、drop_rate | `firewall/src/lib/logger.rs` |
+| `[x]` | 🟡 | **(2026-05-25)** Runtime config 一致性：MapsConfig 加文件說明「需重新編譯才能生效」（build-time constant 無法 runtime 覆蓋） | `firewall/src/lib/config.rs` |
 
 ---
 
@@ -66,6 +78,21 @@
 |------|------|------|------|
 | `[ ]` | 🟡 | 端到端整合測試：XDP 收封包 → scorer 分類 → boundary updater 更新 → 熱切換 eBPF map，驗證無 half-update | `firewall/src/tests/` |
 | `[ ]` | 🟢 | 更新 `docs/claude_ref/codebase_map.md`：補充 `boundary_updater.rs` 函式清單（待實作完成後） | `docs/claude_ref/codebase_map.md` |
+| `[x]` | 🔴 | **(2026-05-23)** 首次端對端 Linux 執行成功（wlp3s0 SKB mode、Logger ring buffer 持續讀取、graceful shutdown 完整清理） | `docs/linux_validation_checklist.md` |
+| `[ ]` | 🟡 | **(2026-05-23)** 實際發送封包驗證：`ping`、`hping3 -S` 通過 XDP；觀察 SCORE_TABLE、QUANTILE_BOUNDS 是否被 `bpftool map dump` 確認 | `docs/linux_validation_checklist.md` P1 區 |
+| `[ ]` | 🟡 | **(2026-05-23)** Adaptive boundary 實際觸發測試：模擬大量低風險流量觀察 `boundary_updater: Normal`，模擬攻擊流量觀察 `AttackFreeze` 切換 | `firewall/src/lib/boundary_updater.rs` |
+| `[ ]` | 🟡 | **(2026-05-23)** BLOCK_LIST 行為驗證：`controller.block_ip(IP)` 後用 `hping3 -S <IP>` 確認被 DROP，並用 `bpftool map dump name BLOCK_LIST` 對照 | `firewall/src/lib/controller.rs:80` |
+
+---
+
+## 7. Makefile / Dev Workflow（2026-05-23 新增）
+
+| 狀態 | 嚴重 | 任務 | 位置 |
+|------|------|------|------|
+| `[x]` | 🟡 | Makefile 增 `make test` / `make run-firewall` / `make run-firewall-debug` / `make run-test` 並解決 `sudo` × nightly toolchain PATH 問題 | `Makefile` |
+| `[x]` | 🟡 | 移除 Makefile 硬編碼 `/home/zanya/.cargo/bin/cargo`，改用 PATH 中的 `cargo` | `Makefile:2` |
+| `[x]` | 🟢 | 增 `make clean-tc`（清理 `tc qdisc del dev <iface> clsact` 殘留）以便在強制 kill 後快速復原 | `Makefile` |
+| `[x]` | 🟢 | 增 `make bpftool-maps`（dump SCORE_TABLE / QUANTILE_BOUNDS / BLOCK_LIST）| `Makefile` |
 
 ---
 
@@ -77,31 +104,32 @@
 
 | 狀態 | 嚴重 | 任務 | 位置 |
 |------|------|------|------|
-| `[ ]` | 🔴 | **SYN cookie ACK 驗證反向**：`if cookie != tcp.ack_seq + 1` 應改為 `if tcp.ack_seq.wrapping_sub(1) != cookie`（現況永遠 DROP 合法連線） | `firewall-ebpf/src/main.rs:67` |
-| `[ ]` | 🟠 | **BLOCK_LIST 對 SYN 封包無效**：`is_blocked` 在 SYN cookie return 之後才執行；應將封鎖檢查移至 SYN cookie 邏輯之前 | `firewall-ebpf/src/main.rs:55-75` |
-| `[ ]` | 🟠 | **TCP checksum 缺少 data-offset nibble**：`update_checksum(csum, SYN_FLAG, SYN_ACK_FLAG)` 未帶入 byte 12-13 的 data-offset 欄；應讀取實際 16-bit word 作為 old_val | `firewall-ebpf/src/syn_cookie.rs:102` |
-| `[ ]` | 🟠 | **`pkt_sum_sq` 無 saturating 保護**：`pkt_sum_sq += params.len * params.len` 對高流量 session 會 overflow；改用 `saturating_add` + `saturating_mul` | `firewall-ebpf/src/table.rs:92, 105` |
-| `[ ]` | 🟡 | **TC egress 重複手動 L4 提取**：`From<&PacketInfo> for SessionUpdateParams` 已實作，TC path 應改用 `SessionUpdateParams::from(&pkt)` | `firewall-ebpf/src/main.rs:110-126` |
-| `[ ]` | 🟡 | **`DROP_EVENTS` 計數器未曝出**：ring buffer 滿載 drop 數寫入但 userspace 從未讀取，無法觀測背壓；應在 logger 週期性 log | `firewall-ebpf/src/collector.rs:11` |
-| `[ ]` | 🟢 | 多餘括號：`if ((*session).max_pkt_len < ...)` → 去括號 | `firewall-ebpf/src/table.rs:97, 108` |
-| `[ ]` | 🟢 | 冗贅變數：`let mut is_close = false; is_close = ...` → `let is_close = ...` | `firewall-ebpf/src/table.rs:116-117` |
-| `[ ]` | 🟢 | 不必要 unsafe block：`unsafe { try_xdp_firewall(ctx) }` 中 `try_xdp_firewall` 為 safe fn | `firewall-ebpf/src/main.rs:25` |
+| `[x]` | 🔴 | **SYN cookie ACK 驗證反向**：`if cookie != tcp.ack_seq + 1` 已改為 `if tcp.ack_seq.wrapping_sub(1) != cookie` | `firewall-ebpf/src/main.rs` |
+| `[x]` | 🟠 | **BLOCK_LIST 對 SYN 封包無效**：`is_blocked` 已移至 SYN cookie 邏輯之前 | `firewall-ebpf/src/main.rs` |
+| `[x]` | 🟠 | **TCP checksum data-offset nibble**：改為讀取 TCP offset 12-13 實際 16-bit word 再呼叫 `update_checksum`；移除 `SYN_FLAG`/`SYN_ACK_FLAG` 常數 | `firewall-ebpf/src/syn_cookie.rs` |
+| `[x]` | 🟠 | **`pkt_sum_sq` overflow**：先 clamp `len` 到 65535（u16 max），`len²` ≤ 4.3B 不溢 u64；改 `saturating_add` 累加，完全無 `__multi3` | `firewall-ebpf/src/table.rs` |
+| `[x]` | 🟡 | **(2026-05-23)** TC egress 改用 `SessionUpdateParams::from(&pkt)`：`tc_egress_impl` 不再手動 L4 match | `firewall-ebpf/src/main.rs:31` |
+| `[x]` | 🟡 | **`DROP_EVENTS` 計數器**：Logger 加 `drop_events: PerCpuArray` 欄位，每 60s 讀取並記錄；main.rs 提取 DROP_EVENTS map 傳入 | `firewall/src/lib/logger.rs` |
+| `[x]` | 🟢 | 多餘括號：`if ((*session).max_pkt_len < ...)` → 去括號 | `firewall-ebpf/src/table.rs` |
+| `[x]` | 🟢 | 冗贅變數：`let mut is_close = false; is_close = ...` → `let is_close = ...` | `firewall-ebpf/src/table.rs` |
+| `[x]` | 🟢 | 不必要 unsafe block：`unsafe { try_xdp_firewall(ctx) }` 中 `try_xdp_firewall` 為 safe fn | `firewall-ebpf/src/main.rs` |
+| `[x]` | 🟢 | **(2026-05-23)** `XDP_PASS` import 已不使用、`PacketContext` import 已不使用，可移除 warning | `firewall-ebpf/src/main.rs`、`firewall-ebpf/src/syn_cookie.rs` |
 
 ### Userspace（firewall）
 
 | 狀態 | 嚴重 | 任務 | 位置 |
 |------|------|------|------|
-| `[ ]` | 🔴 | **`kill_old_sessions` 時鐘不相容**：`SystemTime::now()` 是 UNIX epoch，`last_seen_ts` 來自 `bpf_ktime_get_ns()` 是 CLOCK_BOOTTIME；差距是系統開機以來的時間，所有 session 被立刻視為過期刪除。應改用 `libc::clock_gettime(CLOCK_BOOTTIME, ...)` 且確認是否要整合進 main.rs | `firewall/src/lib/task.rs:12-28` |
-| `[ ]` | 🟡 | **`MapsConfig` 執行期值無作用**：BPF map 大小由 build.rs 編譯期決定，runtime config 中這 3 個欄位不影響任何 map。應加文件說明「需重新編譯才能生效」 | `firewall/src/lib/config.rs:46-50` |
-| `[ ]` | 🟢 | 多餘括號：`if (config.security.enable_random_secret)` → 去括號 | `firewall/src/lib/controller.rs:29` |
+| `[x]` | 🔴 | **`kill_old_sessions` 時鐘不相容**：改用 `libc::clock_gettime(CLOCK_BOOTTIME)` 與 `bpf_ktime_get_ns()` 對齊 | `firewall/src/lib/task.rs` |
+| `[x]` | 🟡 | **`MapsConfig` 執行期值無作用**：已加文件說明「需重新編譯才能生效」 | `firewall/src/lib/config.rs` |
+| `[x]` | 🟢 | 多餘括號：`if (config.security.enable_random_secret)` → 去括號 | `firewall/src/lib/controller.rs` |
 
 ### Python（service/model）
 
 | 狀態 | 嚴重 | 任務 | 位置 |
 |------|------|------|------|
-| `[ ]` | 🟡 | **`_feature_ratio_components` 靜默 fallback**：無 `Packet Length Sum Sq` 欄位時靜默切換計算路徑，不發警告；兩路徑數值不完全等價，應加 `warnings.warn` | `pipeline/distill.py:106-127` |
-| `[ ]` | 🟡 | **`get_mixed_normal_sample` 靜默降級為單一來源**：某個 source 無 BENIGN 資料時靜默跳過，可能用單一資料集算邊界而不警告（違反 Mixed BENIGN 設計）；應在 chunks 數量不足時發警告 | `data/sample.py:229-230` |
-| `[ ]` | 🟢 | `RAW_COLS = []` 和 `NUMERIC_RAW_COLS = []` 是空的死欄位 | `schema.py:3-4` |
+| `[x]` | 🟡 | **`_feature_ratio_components` 靜默 fallback**：已加 `warnings.warn` 於 fallback 路徑 | `pipeline/distill.py` |
+| `[x]` | 🟡 | **`get_mixed_normal_sample` 靜默降級為單一來源**：已加警告於 chunks 數量不足時 | `data/sample.py` |
+| `[x]` | 🟢 | `RAW_COLS = []` 和 `NUMERIC_RAW_COLS = []` 空死欄位已移除 | `schema.py` |
 
 ---
 
@@ -127,8 +155,8 @@
 | `[x]` | 27 | Boundary overfit check（CIC vs BigFlow 邊界差異）| `run27_boundary_overfit_check.py` | 兩環境分布差異 2–4×；必須 Mixed 邊界 |
 | `[x]` | 28 | Contract 對照矩陣（Run25 original vs 32-entry all-binary）| `run28_contract_matrix.py` | **部署 contract HOIC=0.0001，avg=0.60**；protocol 二值化是根本原因 |
 | `[x]` | 29 | HOIC 特徵替換（init_win_bit 修復 HOIC）| `run29_hoic_feature_search.py` | `init_win_bit` 單特徵 HOIC AUC=0.9995；BigFlow 無此欄位不受影響 |
-| `[-]` | **30** | N-sweep 多點分位桶（N=2/4/8，全特徵含 Protocol）| `run30_n_sweep.py` | 腳本完成，等待資料路徑 |
-| `[ ]` | 31 | `init_win_bit` contract 整合驗證：以 32-entry 或 64-entry 實際 score table 重跑 Run29 最佳變體 | — | 確認 init_win_bit 在 score-table 路徑（非 IF-direct）的真實 AUC |
+| `[x]` | **30** | N-sweep 多點分位桶（N=2/4/8，CIC-only）| `run30_n_sweep.py` | N=2 avg=0.8943 最優（N=4=0.8806、N=8=0.9125 但 32768-entry 不可行）；SYN/UDP-LAG 為盲區；維持 N=2 contract |
+| `[ ]` | 31 | **N=8 + Per-feature Additive Bucket Score（PAB-Score）驗證**：OLS fit additive model，量化 Δ AUC vs full 32768-entry table；若 max Δ < 0.02 → 採用，進行 eBPF 實作 | `run31_additive_score.py` | 設計提案見 `quantile_bucket_strategy_log.md` Run 31 節 |
 | `[ ]` | 32 | Layer 2 完整 IF 整合實驗：userspace runtime IF 與 kernel fast-path 分流策略 | — | 需先完成 Layer 2 集成計畫文件 |
 
 ---

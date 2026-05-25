@@ -952,3 +952,291 @@ python -m service.model.experiments.run28_contract_matrix
    - 方案 A：接受 eBPF fast path 不偵測 HOIC，由 Userspace 補（init_win_ratio 作為直接規則）
    - 方案 B：放棄 32-entry all-binary，改用 C_larger_table_mean8（192-entry，HOIC=0.1797）
    - 方案 C：在 eBPF 層直接實作 `init_win_ratio > threshold → score++` 作為獨立規則，不進 IF score table
+
+---
+
+### Run 30 — 2026-05-23（N-sweep：multi-level quantile buckets，CIC-only + metrics）
+
+**目標：** 評估在相同 5 個特徵下，將 N 從 2 提高到 4/8 是否能提升 AUC；引入 `metrics.py` 報告誤報率（FPR）、漏報率（FNR）、準確率、overfit 指標。
+
+**執行腳本：** `service/model/experiments/run30_n_sweep.py`
+
+**訓練資料：** CIC BENIGN only（03-11 files，10k 筆）；不使用 BigFlow / IDS2018
+
+**Eval 資料：** CIC 01-12 各檔，每檔取 BENIGN + 主攻擊類型（最多 4000/label），共 11 個攻擊類型
+
+**Variant 定義：**
+
+| Variant | Table size | 說明 |
+|---------|----------:|------|
+| D_n2_baseline | 32 | N=2 all（部署 contract 對照） |
+| E_n4_all | 1024 | N=4 all |
+| E_n8_all | 32768 | N=8 all |
+| F_n4ratio_n2abs | 256 | ratio×3 N=4；abs×2 N=2 |
+| G_proto3_n4rest | 384 | protocol 3-cat；mean N=2；ratio×3 N=4 |
+
+**AUC-ROC 結果（CIC-only eval）：**
+
+| Variant | Table | DrDoS_DNS | DrDoS_LDAP | DrDoS_MSSQL | DrDoS_NTP | DrDoS_SNMP | DrDoS_SSDP | DrDoS_UDP | SYN | TFTP | UDP-LAG | Avg |
+|---------|------:|:---------:|:----------:|:-----------:|:---------:|:----------:|:----------:|:---------:|:---:|:----:|:-------:|:---:|
+| D_n2_baseline | 32 | 0.9963 | 0.9950 | 0.9965 | 0.9814 | 0.9924 | 0.9946 | 0.9954 | **0.3999** | 0.9929 | **0.4958** | 0.8943 |
+| E_n4_all | 1024 | 0.9312 | 0.8989 | 0.9397 | 0.9605 | 0.8819 | 0.9055 | 0.9399 | 0.5828 | 0.9623 | 0.7227 | 0.8806 |
+| E_n8_all | 32768 | 0.9942 | 0.9929 | 0.9895 | 0.9905 | 0.9910 | 0.9900 | 0.9858 | 0.5310 | 0.9890 | 0.5907 | **0.9125** |
+| F_n4ratio_n2abs | 256 | 0.8981 | 0.8666 | 0.9093 | 0.8986 | 0.8504 | 0.8688 | 0.8989 | 0.5947 | 0.9231 | 0.6870 | 0.8471 |
+| G_proto3_n4rest | 384 | 0.9235 | 0.8840 | 0.9242 | 0.9392 | 0.8590 | 0.8859 | 0.9193 | 0.5858 | 0.9430 | 0.6787 | 0.8627 |
+
+**Detection metrics（Youden-J 最優閾值，跨攻擊類型平均）：**
+
+| Variant | AUC | Accuracy | FPR 誤報 | FNR 漏報 | Precision | F1 |
+|---------|:---:|:--------:|:--------:|:--------:|:---------:|:--:|
+| D_n2_baseline | 0.8943 | 0.9541 | 0.1193 | 0.0176 | 0.9565 | 0.9668 |
+| E_n4_all | 0.8806 | 0.9519 | 0.1246 | 0.0187 | 0.9463 | 0.9629 |
+| E_n8_all | **0.9125** | **0.9604** | **0.0919** | 0.0191 | **0.9624** | **0.9701** |
+| F_n4ratio_n2abs | 0.8471 | 0.9394 | 0.1586 | 0.0176 | 0.9269 | 0.9530 |
+| G_proto3_n4rest | 0.8627 | 0.9453 | 0.1425 | 0.0176 | 0.9360 | 0.9579 |
+
+**FPR ≤ 1% 限制下（D_n2_baseline）：**
+
+| 攻擊類型 | Threshold | FPR | TPR | Accuracy |
+|---------|----------:|----:|----:|:--------:|
+| DrDoS_DNS | 0.6838 | 0.0082 | **0.9998** | 0.9961 |
+| DrDoS_LDAP | 0.6919 | 0.0099 | **1.0000** | 0.9971 |
+| DrDoS_MSSQL | 0.6840 | 0.0085 | **1.0000** | 0.9972 |
+| DrDoS_NTP | 0.6838 | 0.0083 | 0.9805 | 0.9861 |
+| DrDoS_UDP | 0.6840 | 0.0097 | **1.0000** | 0.9966 |
+| TFTP | 0.6838 | 0.0050 | 0.9920 | 0.9935 |
+| DrDoS_SNMP | inf | 0.0000 | **0.0000** | 0.2737（無法偵測）|
+| DrDoS_SSDP | inf | 0.0000 | **0.0000** | 0.1602（無法偵測）|
+| SYN | 0.6840 | 0.0026 | **0.0005** | 0.0895（無法偵測）|
+| UDP-LAG | 0.6838 | 0.0035 | 0.1308 | 0.5470（偵測率極低）|
+
+**Overfit check（train vs test BENIGN 分布比較）：**
+
+| Variant | mean_train | mean_test | gap | std_ratio | pct_overlap | severity |
+|---------|----------:|----------:|----:|:---------:|:-----------:|:-------:|
+| D_n2_baseline | 0.5108 | 0.5196 | 0.0088 | 1.0015 | 0.5645 | **none** |
+| E_n4_all | 0.5074 | 0.5136 | 0.0062 | 0.9315 | 0.6900 | **none** |
+| E_n8_all | 0.5017 | 0.5056 | 0.0040 | 0.9610 | 0.7514 | **none** |
+| F_n4ratio_n2abs | 0.5127 | 0.5127 | 0.0001 | 0.9250 | 0.6814 | **none** |
+| G_proto3_n4rest | 0.5139 | 0.5158 | 0.0019 | 0.9014 | 0.7082 | **none** |
+
+pct_overlap < 0.70 在 D_n2_baseline（0.5645）表示 train/test BENIGN 分布有差異，但 mean_gap=0.009 仍屬可接受範圍（severity=none）。
+
+**關鍵結論：**
+
+1. **SYN 和 UDP-LAG 是盲區**：N=2 的 AUC 分別為 0.40 和 0.50（等同隨機猜），即使在 FPR≤1% 的嚴格限制下，TPR 幾乎為 0。這兩種攻擊與 BENIGN 的流量特徵分布高度重疊，當前 5 個特徵無法區分。
+2. **DrDoS 系列偵測效果優異**：在 FPR≤1% 下 TPR 近 100%（DNS/LDAP/MSSQL/UDP）。
+3. **模型無 overfit**：所有 variant 的 mean_gap < 0.01，CIC-only 訓練在 CIC-only eval 上不存在明顯過擬合。
+4. **FPR 在 Youden-J 下偏高**：D_n2_baseline 平均 FPR=11.9%，對防火牆而言偏高；在 FPR≤1% 目標下，SYN/SNMP/SSDP/UDP-LAG 的偵測能力崩潰。
+5. **E_n8_all 是指標最佳**（avg AUC=0.9125，FPR=0.0919），但 32768-entry 在 eBPF 需評估 Array map 限制。
+6. **F_n4ratio_n2abs（256-entry）vs D_n2 有退步**（-0.0472 avg AUC）：CIC-only 情境下 ratio 升 N=4 反而降低 DrDoS 偵測率，與 Mixed BENIGN 版本結論相反（Mixed 版 +0.0233）。需要 Mixed BENIGN 訓練資料才能正確校準 ratio 特徵邊界。
+
+**範圍決策（2026-05-25）：** 評估範圍限定 CIC-IDS-2019，不做跨資料集泛化。N=2 contract 維持，`distill_export_cic_only.py` 為目前 production path。Mixed BENIGN 技術路徑（`get_mixed_normal_sample` + `build_features`）已實作，待跨資料集需求時啟用。
+7. **Metrics 模組**：`service/model/metrics.py`（detection_metrics、overfit_check、threshold_at_fpr）已建立，可在後續實驗直接呼叫。
+
+---
+
+### Run 31 — 設計提案（2026-05-25）：N=8 + Per-feature Additive Bucket Score
+
+**狀態：** 規劃中，尚未實作
+
+---
+
+#### 動機
+
+Run 30 顯示 E_n8_all（N=8 全查表）avg AUC=0.9125，優於 N=2 的 0.8943（+0.0182）。  
+問題：8⁵ = 32768-entry table 在 eBPF 使用 `BPF_MAP_TYPE_ARRAY` 技術可行（32768×4B=128KB，低於 map 4MB 上限），但：
+
+- Bounded loop 7 層需通過 verifier（雖已有先例，但每次 kernel 升版都要重驗）
+- Double-buffer adaptive boundary 需同步維護 2×32768 entries，userspace 寫 map 成本倍增
+- 5×7=35 個邊界 vs 目前 5 個，boundary updater 改動大
+
+提案：改用 **Per-feature Additive Bucket Score（PAB-Score）**，把查表從 32768 壓到 **40 個整數分數**，eBPF 邏輯維持 5 次 lookup + 加法。
+
+---
+
+#### 核心設計：Additive Decomposition
+
+將 IF anomaly score 做加法分解（Generalized Additive Model）：
+
+```
+IF_score(b₀, b₁, b₂, b₃, b₄) ≈ s₀(b₀) + s₁(b₁) + s₂(b₂) + s₃(b₃) + s₄(b₄)
+```
+
+其中 `sᵢ(bᵢ)` 是特徵 i 在 bucket bᵢ 下的個別貢獻分數（整數，需要 SCALE 縮放）。
+
+這捨棄了特徵間的**交叉互動項**（例如「低 sym 且高 fwd_max 同時成立才算攻擊」），  
+但保留了每個特徵的非線性貢獻（bucket 7 的分數可以遠大於 bucket 0）。
+
+---
+
+#### 與查表法的比較
+
+| 方案 | Table entries | 失去的資訊 | eBPF 操作 |
+|------|:------------:|----------|----------|
+| N=2 查表（目前） | 32 | N/A | 1 lookup |
+| N=8 查表 | 32768 | N/A（完整）| 1 lookup（需 bounded loop 建 index）|
+| **N=8 PAB-Score（提案）** | **40** | 特徵間交叉互動 | **5 lookups + 加法** |
+
+---
+
+#### Python 推導方式（訓練端）
+
+```python
+# step 1: 建全量 IF score table（N=8，32768 entries）
+full_table = build_score_table(if_model, scaler, n_map={f: 8 for f in FEATURES})
+# shape: (32768,)，索引編碼：b₀*8⁴ + b₁*8³ + b₂*8² + b₃*8 + b₄
+
+# step 2: 拆解為 additive scores（OLS with indicator variables）
+# X: 每個 (feature_i, bucket_j) pair 對應一個 0/1 欄，共 5×8=40 欄
+# y: full_table（32768 rows）
+# β = OLS(X, y) → 40 per-bucket scores
+from sklearn.linear_model import LinearRegression
+X = build_indicator_matrix(all_bucket_combos, n_features=5, n_buckets=8)  # (32768, 40)
+y = full_table
+reg = LinearRegression(fit_intercept=True).fit(X, y)
+per_bucket_scores = reg.coef_  # shape: (40,), layout: [s₀(0..7), s₁(0..7), ..., s₄(0..7)]
+intercept = reg.intercept_
+
+# step 3: 整數化（SCALE = 10000，與現有 score_scale 一致）
+SCALE = 10000
+feature_scores_int = [int(s * SCALE) for s in per_bucket_scores]
+# threshold 同步調整：threshold = (original_if_threshold - intercept) * SCALE
+```
+
+**Additive 分解的數學保證：**  
+若 IF 的各棵樹對各特徵均勻抽樣，additive decomposition 可解釋 IF score 的主要變異。  
+殘差（交叉項）需透過 Run 31 實驗量化：若 Δ AUC < 0.02，接受此近似。
+
+---
+
+#### eBPF 實作（scorer.rs）
+
+**Map 佈局變更：**
+
+```rust
+// 新增 FEATURE_SCORES map（取代 SCORE_TABLE）
+// key: feature_idx * N_BUCKETS + bucket_idx
+// N_BUCKETS=8, 5 features → 40 entries
+#[map] static FEATURE_SCORES: Array<i32> = Array::with_max_entries(40, 0);
+
+// QUANTILE_BOUNDS 擴充：5 features × 7 bounds = 35 entries
+// layout: feature_idx * (N_BUCKETS-1) + bound_idx
+// double-buffer: active_bank_base() * 35 + feature_idx * 7 + bound_idx
+#[map] static QUANTILE_BOUNDS: Array<u64> = Array::with_max_entries(70, 0); // 2 banks × 35
+```
+
+**Score 計算（取代 index 查表）：**
+
+```rust
+fn compute_additive_score(features: &RawFeatures, bounds_base: u32) -> i64 {
+    let buckets = compute_bucket_indices(features, bounds_base); // [u8; 5]
+    let mut score: i64 = 0;
+    for (i, &b) in buckets.iter().enumerate() {
+        let idx = (i as u32) * 8 + (b as u32);
+        if let Some(&s) = FEATURE_SCORES.get(idx) {
+            score += s as i64;
+        }
+    }
+    score
+}
+```
+
+`compute_bucket_indices`：對每個特徵做 7 步 ratio 比對（bounded，verifier 可過），回傳 0–7 bucket index。
+
+**Bucket 計算（N=8，7 個 bounds per feature）：**
+
+```rust
+fn bucket_index(val_a: u64, val_b: u64, bounds_start: u32) -> u8 {
+    // val_a / val_b > bound[k] ↔ val_a * denom_k > val_b * numer_k
+    // bounds stored as (numer, denom) pairs
+    let mut bucket: u8 = 0;
+    for k in 0u32..7 {
+        let idx = bounds_start + k;
+        if let (Some(numer), Some(denom)) = (QUANTILE_BOUNDS.get(idx*2), QUANTILE_BOUNDS.get(idx*2+1)) {
+            if val_a * *denom > val_b * *numer {
+                bucket = (k + 1) as u8;
+            }
+        }
+    }
+    bucket
+}
+```
+
+（迴圈 7 次，verifier bounded loop 可過；或手動 unroll 消除迴圈）
+
+---
+
+#### Model JSON 格式變更（v2）
+
+```json
+{
+  "version": 2,
+  "mode": "additive",
+  "n_buckets": 8,
+  "feature_order": ["protocol", "pkt_len_mean", "fwd_max_q", "sym_ratio", "pkt_cv_sq"],
+  "threshold_cmp": ">=",
+  "score_scale": 10000,
+  "length_unit": "packet_len",
+  "threshold": 55000,
+  "quantile_bounds": [
+    {"name": "protocol",     "type": "absolute", "values": [v0, v1, ..., v6]},
+    {"name": "pkt_len_mean", "type": "absolute", "values": [v0, ..., v6]},
+    {"name": "fwd_max_q",    "type": "ratio",    "pairs": [[n0,d0], ..., [n6,d6]]},
+    {"name": "sym_ratio",    "type": "ratio",    "pairs": [[n0,d0], ..., [n6,d6]]},
+    {"name": "pkt_cv_sq",    "type": "ratio",    "pairs": [[n0,d0], ..., [n6,d6]]}
+  ],
+  "feature_scores": [
+    [s00, s01, s02, s03, s04, s05, s06, s07],  // protocol  bucket 0..7
+    [s10, s11, s12, s13, s14, s15, s16, s17],  // pkt_len_mean
+    [s20, s21, s22, s23, s24, s25, s26, s27],  // fwd_max_q
+    [s30, s31, s32, s33, s34, s35, s36, s37],  // sym_ratio
+    [s40, s41, s42, s43, s44, s45, s46, s47]   // pkt_cv_sq
+  ]
+}
+```
+
+v1 `score_table`（32 entries）→ v2 `feature_scores`（5×8=40 entries）。  
+Userspace `model_loader.rs` 需依 `version` 欄位分支載入，向下相容 v1。
+
+---
+
+#### Adaptive Boundary Update 影響
+
+| 元件 | 現況（N=2）| 提案（N=8 PAB）|
+|------|-----------|--------------|
+| `QUANTILE_BOUNDS` map size | 5+5=10（雙 bank）| 35+35=70（雙 bank）|
+| `FEATURE_SCORES` map size | `SCORE_TABLE` 32 entries | 40 entries（靜態，不 adapt）|
+| `BoundaryUpdater` S_ref/S_live | 各 1 個 sketch | 不變（仍針對連續特徵值）|
+| `write_boundary_version` | 寫 5 個 bounds | 寫 35 個 bounds |
+
+`FEATURE_SCORES` 固定（只在 model reload 時更新），**只有 bounds 做 adaptive update**，GateState 機制不變。
+
+---
+
+#### Run 31 實驗計畫
+
+**目標：** 量化 additive decomposition 的 AUC 損失，決定是否採用。
+
+| 步驟 | 說明 |
+|------|------|
+| 1 | CIC BENIGN（03-11）訓練 IF，N=8，建 32768-entry full table |
+| 2 | OLS fit additive model → 40 per-bucket scores |
+| 3 | 用 full table score vs additive score 各算 AUC（CIC 01-12 eval）|
+| 4 | 報告 Δ AUC = AUC(full) − AUC(additive) per attack type |
+| 5 | 若 max Δ < 0.02 → 採用 PAB；若 Δ 大 → 保留選項分析殘差結構 |
+
+腳本：`service/model/experiments/run31_additive_score.py`
+
+**決策門檻：**
+- Δ AUC < 0.02（全攻擊類型）且 FPR ≤ 原 N=8 full table 的 1.1× → **採用 PAB-Score，進行 eBPF 實作**
+- 否則 → 評估是否接受較大的 Δ，或改用方案 A（5 個純線性權重）
+
+---
+
+#### 未解問題（實作前需確認）
+
+1. **Verifier：7 層 ratio 比對 bounded loop** → 可能需要手動 unroll（參考 `syn_cookie.rs` 的 unroll 做法）
+2. **整數 overflow**：`FEATURE_SCORES` 各值 × SCALE=10000；5 個特徵加總最大值需 fit i32 → 需確認 score range
+3. **Adaptive update 延遲**：`write_boundary_version` 從寫 5 個 u64 增加到寫 35 個，原子性窗口變大，需評估影響
+4. **v1 → v2 遷移**：`model_loader.rs` 需支援 version=1 fallback（`SCORE_TABLE` 仍可用），不能直接替換

@@ -37,7 +37,9 @@ CICFlowMeter 的 `Min Packet Length` 包含 TCP ACK 封包（payload=0），導�
 
 ### 訓練邊界來源
 
-**必須使用 Mixed BENIGN**（CIC 15k + BigFlow 15k = 30k）計算分位桶邊界。
+> **當前評估範圍（2026-05-25）：CIC-IDS-2019 only**。以下 Mixed BENIGN 規則為跨資料集泛化需求；範圍限定 CIC 2019 時使用 CIC BENIGN only 邊界（`get_normal_sample_from_files`）。
+
+**跨資料集泛化時必須使用 Mixed BENIGN**（CIC 15k + BigFlow 15k = 30k）計算分位桶邊界。
 
 純 CIC 邊界已確認對 BigFlow 嚴重 overfit：CIC 訓練後 BigFlow AUC < 0.4，反轉為低於隨機基線。
 
@@ -243,7 +245,7 @@ Layer 2（Userspace 完整 IF）為設計目標但尚未接通 runtime（離線 
 | 分位桶 N=2（Shape_q）| ✓ 交叉乘法 | 0.9418 CIC-only | Run 17（已棄用）|
 | 分位桶 N=2（FwdMax_q）| ✓ 交叉乘法 | 0.8888（**IF-direct 證據，非部署 contract**）| Run 25（見「最終 AUC-ROC」caveat）|
 
-**本專案選擇：FwdMax_q 分位桶 N=2**，Mixed BENIGN 邊界，以 `(a × denom) < (b × numer)` 在 kernel 判斷分位排名。
+**本專案選擇：FwdMax_q 分位桶 N=2**，CIC 2019 BENIGN 邊界（跨資料集泛化時改用 Mixed BENIGN），以 `(a × denom) < (b × numer)` 在 kernel 判斷分位排名。
 
 > ⚠️ 下表 N 掃描全部走 **IF-direct（Protocol/PktLenMean raw）**，**從未在實際 score-table contract 上驗證**（Run 17/22/25 皆然）。「N=2 最優」僅對 IF-direct 成立；部署 contract 的 N 行為未測。新 N-scan 必須走 binary contract path（仿 `run28_contract_matrix.py` D 結構）。
 
