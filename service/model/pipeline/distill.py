@@ -21,6 +21,7 @@ bounds 型別：
   pkt_len_mean = Packet Length Mean   (直接使用)
 """
 import json
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -115,6 +116,12 @@ class DistilledClassifier:
                 numer = np.maximum(numer, 0)
                 return numer, total_len_sq
 
+            warnings.warn(
+                "pkt_cv_sq: 'Packet Length Sum Sq' not present; falling back to "
+                "Std²/Mean² approximation — values differ from the aggregate formula",
+                UserWarning,
+                stacklevel=3,
+            )
             std = df["Packet Length Std"].to_numpy(allow_copy=True).astype(np.int64)
             mean = df["Packet Length Mean"].to_numpy(allow_copy=True).astype(np.int64) + 1
             return std * std, mean * mean

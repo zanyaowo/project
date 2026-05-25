@@ -1,5 +1,16 @@
 {
-  "threshold": 500,
+  "version": 1,
+  "feature_order": [
+    "protocol",
+    "pkt_len_mean",
+    "fwd_max_q",
+    "sym_ratio",
+    "pkt_cv_sq"
+  ],
+  "threshold_cmp": ">=",
+  "score_scale": 10000,
+  "length_unit": "packet_len",
+  "threshold": 7073,
   "quantile_bounds": [
     {
       "name": "protocol",
@@ -8,33 +19,60 @@
     },
     {
       "name": "pkt_len_mean",
-      "type": "ratio",
-      "numer": 200,
-      "denom": 1
+      "type": "absolute",
+      "value": 31
     },
     {
       "name": "fwd_max_q",
       "type": "ratio",
-      "numer": 3,
-      "denom": 1
+      "numer": 1021689,
+      "denom": 1048576
     },
     {
       "name": "sym_ratio",
       "type": "ratio",
-      "numer": 1,
-      "denom": 1
+      "numer": 729444,
+      "denom": 1048576
     },
     {
-      "name": "pkt_cv",
+      "name": "pkt_cv_sq",
       "type": "ratio",
-      "numer": 150,
-      "denom": 1000
+      "numer": 215933,
+      "denom": 1048576
     }
   ],
   "score_table": [
-    -320, -280, -150, -100, 50, 120, 200, 350,
-    -200, -150, -80, 10, 100, 180, 300, 420,
-    -100, -50, 20, 80, 150, 250, 380, 500,
-    0, 50, 100, 200, 300, 400, 520, 650
+    4755,
+    6932,
+    5896,
+    5716,
+    6046,
+    6402,
+    6129,
+    5117,
+    4950,
+    7073,
+    6013,
+    6976,
+    5870,
+    7166,
+    6198,
+    7182,
+    6131,
+    6456,
+    6748,
+    5603,
+    6590,
+    6443,
+    6549,
+    5549,
+    6814,
+    7303,
+    6267,
+    6931,
+    5072,
+    6536,
+    4680,
+    6950
   ]
 }

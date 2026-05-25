@@ -190,11 +190,11 @@ impl<'a> BoundaryUpdater<'a> {
     /// already populated, so the first batch computes meaningful drift.
     fn seed(&mut self) {
         for i in 0..FEATURE_COUNT_USIZE {
-            if let Ok(b) = self.bounds_map.get(i as u32, 0) {
+            if let Ok(b) = self.bounds_map.get(&(i as u32), 0) {
                 self.current_bounds[i] = decode_bound(i, &b);
             }
         }
-        if let Ok(cfg) = self.config_map.get(0, 0) {
+        if let Ok(cfg) = self.config_map.get(&0u32, 0) {
             self.current_threshold = cfg.threshold as f64;
         }
     }
@@ -332,24 +332,25 @@ impl<'a> BoundaryUpdater<'a> {
         loop {
             let mut guard = async_fd.readable().await?;
 
-            while let Some(raw) = self.ring_buf.next() {
-                // Decode into an owned value, then drop `raw` to release the
-                // borrow of `self.ring_buf` before calling &mut self helpers.
-                let ev_opt: Option<StatsEvent> = {
-                    let data: &[u8] = raw.deref();
-                    if data.len() < std::mem::size_of::<StatsEvent>() {
-                        None
-                    } else {
+            loop {
+                // Decode into an owned StatsEvent, dropping `raw` at end of
+                // the match arm so `self.ring_buf` is released before any
+                // `&mut self` call below.
+                let ev: StatsEvent = match self.ring_buf.next() {
+                    None => break,
+                    Some(raw) => {
+                        let data: &[u8] = raw.deref();
+                        if data.len() < std::mem::size_of::<StatsEvent>() {
+                            continue; // raw dropped here
+                        }
                         // SAFETY: size checked; StatsEvent is repr(C) + Pod.
-                        Some(unsafe { (data.as_ptr() as *const StatsEvent).read_unaligned() })
+                        let ev = unsafe {
+                            (data.as_ptr() as *const StatsEvent).read_unaligned()
+                        };
+                        ev // raw dropped here
                     }
                 };
-                drop(raw);
 
-                let ev = match ev_opt {
-                    Some(e) => e,
-                    None => continue,
-                };
                 self.ingest(&ev);
 
                 if self.batch_ready() {

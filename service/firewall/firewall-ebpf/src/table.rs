@@ -89,12 +89,15 @@ pub fn update_session(params: &SessionUpdateParams) -> Option<SessionValue> {
         if let Some(session) = SESSIONS.get_ptr_mut(&fwd_key) {
             (*session).orig_pkts += 1;
             (*session).orig_bytes += params.payload_len;
-            (*session).pkt_sum_sq += params.len * params.len;
+            // Clamp len to u16 max before squaring: 65535^2 ≈ 4.3B fits in u32, never
+// overflows u64 here, and avoids any 128-bit intrinsic (__multi3-free).
+let sq = params.len.min(65535) * params.len.min(65535);
+(*session).pkt_sum_sq = (*session).pkt_sum_sq.saturating_add(sq);
             (*session).last_seen_ts = bpf_ktime_get_ns();
             (*session).flag = params.flag;
             (*session).is_close = is_connection_closed(params.flag);
 
-            if ((*session).max_pkt_len < params.len as u32) {
+            if (*session).max_pkt_len < params.len as u32 {
                 (*session).max_pkt_len = params.len as u32;
             }
 
@@ -102,26 +105,28 @@ pub fn update_session(params: &SessionUpdateParams) -> Option<SessionValue> {
         } else if let Some(session) = SESSIONS.get_ptr_mut(&rev_key) {
             (*session).resp_pkts += 1;
             (*session).resp_bytes += params.payload_len;
-            (*session).pkt_sum_sq += params.len * params.len;
+            // Clamp len to u16 max before squaring: 65535^2 ≈ 4.3B fits in u32, never
+// overflows u64 here, and avoids any 128-bit intrinsic (__multi3-free).
+let sq = params.len.min(65535) * params.len.min(65535);
+(*session).pkt_sum_sq = (*session).pkt_sum_sq.saturating_add(sq);
             (*session).last_seen_ts = bpf_ktime_get_ns();
             (*session).flag = params.flag;
             (*session).is_close = is_connection_closed(params.flag);
 
-            if ((*session).max_pkt_len < params.len as u32) {
+            if (*session).max_pkt_len < params.len as u32 {
                 (*session).max_pkt_len = params.len as u32;
             }
 
             Some(*session)
         } else {
-            let mut is_close = false;
-            is_close = is_connection_closed(params.flag);
+            let is_close = is_connection_closed(params.flag);
 
             let new_session = SessionValue {
                 orig_bytes: params.payload_len,
                 orig_pkts: 1,
                 resp_bytes: 0,
                 resp_pkts: 0,
-                pkt_sum_sq: params.len * params.len,
+                pkt_sum_sq: params.len.min(65535) * params.len.min(65535),
                 max_pkt_len: params.len as u32,
                 start_ts: bpf_ktime_get_ns(),
                 last_seen_ts: bpf_ktime_get_ns(),

@@ -26,7 +26,7 @@ impl FirewallController {
         )?;
 
         // set secret key
-        if (config.security.enable_random_secret) {
+        if config.security.enable_random_secret {
             let secret = rand::random::<u32>();
             secret_map.set(0, secret, 0)?;
         } else {
@@ -73,7 +73,16 @@ impl FirewallController {
     }
 
     pub fn detach_tc(&mut self, iface: &str) -> anyhow::Result<()> {
-        tc::qdisc_del_clsact(iface).context("failed to remove clsact qdisc")?;
+        // detach_program 在 aya 0.13.1 對我們的情境常 fail（program 已隨 Ebpf drop 自動清除），
+        // 但 clsact qdisc 不會自動移除 → 殘留 `qdisc clsact ffff:` 影響下次重啟。
+        // 直接呼叫 iproute2 的 `tc` 來刪 qdisc，是最簡單可靠的方法。
+        let status = std::process::Command::new("tc")
+            .args(["qdisc", "del", "dev", iface, "clsact"])
+            .status()
+            .context("failed to invoke `tc qdisc del`")?;
+        if !status.success() {
+            log::warn!("`tc qdisc del dev {iface} clsact` exited with {status}");
+        }
         Ok(())
     }
 

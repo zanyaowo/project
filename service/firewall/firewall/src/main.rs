@@ -4,7 +4,7 @@ use crate::lib::controller::FirewallController;
 use crate::lib::logger::Logger;
 use crate::lib::model_loader::load_model;
 use aya::include_bytes_aligned;
-use aya::maps::{Array, PerCpuHashMap, RingBuf};
+use aya::maps::{Array, PerCpuArray, PerCpuHashMap, RingBuf};
 use clap::Parser;
 use firewall_common::model::BoundaryMeta;
 use log::warn;
@@ -92,6 +92,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let mut model_config_data = None;
     let mut stats_ring_data = None;
     let mut boundary_meta_data = None;
+    let mut drop_events_data = None;
 
     for (name, map) in controller.maps_mut() {
         match name {
@@ -102,6 +103,7 @@ async fn main() -> Result<(), anyhow::Error> {
             "MODEL_CONFIG" => model_config_data = Some(map),
             "STATS_RING_BUF" => stats_ring_data = Some(map),
             "BOUNDARY_META" => boundary_meta_data = Some(map),
+            "DROP_EVENTS" => drop_events_data = Some(map),
             _ => {}
         }
     }
@@ -118,8 +120,11 @@ async fn main() -> Result<(), anyhow::Error> {
     let boundary_meta_map =
         boundary_meta_data.ok_or_else(|| anyhow::anyhow!("BOUNDARY_META map not found"))?;
 
+    let drop_events_map = drop_events_data
+        .ok_or_else(|| anyhow::anyhow!("DROP_EVENTS map not found"))?;
     let session_table = PerCpuHashMap::try_from(session_map)?;
     let event_ring_buf = RingBuf::try_from(event_map)?;
+    let drop_events: PerCpuArray<_, u64> = PerCpuArray::try_from(drop_events_map)?;
     let mut score_table = Array::try_from(score_map)?;
     let mut quantile_bounds_table = Array::try_from(quantile_bounds_map)?;
     let mut model_config_table = Array::try_from(model_config_map)?;
@@ -136,7 +141,7 @@ async fn main() -> Result<(), anyhow::Error> {
         )?;
     }
 
-    let mut logger = Logger::new(event_ring_buf, session_table, config.clone())?;
+    let mut logger = Logger::new(event_ring_buf, session_table, drop_events, config.clone())?;
     let mut updater = BoundaryUpdater::new(
         stats_ring_buf,
         quantile_bounds_table,
@@ -150,7 +155,7 @@ async fn main() -> Result<(), anyhow::Error> {
     // borrow model — load() cannot spawn a task borrowing maps from the
     // Ebpf it returns; concurrent run here is the correct adaptation.)
     tokio::select! {
-        res = tokio::try_join!(logger.start(), updater.run()) => { res?; }
+        res = async { tokio::try_join!(logger.start(), updater.run()) } => { res?; }
         _ = shutdown_signal() => {
             log::info!("Shutdown signal received");
         }

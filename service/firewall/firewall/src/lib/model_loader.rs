@@ -232,7 +232,7 @@ pub fn write_boundary_version(
         );
     }
 
-    let prev = meta_map.get(0, 0).unwrap_or(BoundaryMeta {
+    let prev = meta_map.get(&0u32, 0).unwrap_or(BoundaryMeta {
         version: 0,
         active: 0,
         expiry_ns: 0,
@@ -268,7 +268,7 @@ pub fn update_score_threshold(
     config_map: &mut Array<&mut MapData, ModelConfig>,
     new_threshold: i32,
 ) -> anyhow::Result<()> {
-    let mut cfg = config_map.get(0, 0)?;
+    let mut cfg = config_map.get(&0u32, 0)?;
     cfg.threshold = new_threshold;
     config_map.set(0, cfg, 0)?;
     Ok(())

@@ -24,7 +24,7 @@ boundary_meta_size = 1
 
 [model]
 enabled = true
-model_file = "model.json"
+model_file = "src/data_format/model.json"
 action = "log"
 hot_reload = false
 

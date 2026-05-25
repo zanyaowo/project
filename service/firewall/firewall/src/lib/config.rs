@@ -42,6 +42,8 @@ pub struct SecurityConfig {
     pub custom_cookie: Option<u32>,
 }
 
+/// BPF map sizes are set at compile time via build.rs constants; changing these
+/// values at runtime has no effect — a recompile is required for them to apply.
 #[derive(Deserialize, Clone, Debug)]
 pub struct MapsConfig {
     pub block_list_size: u32,

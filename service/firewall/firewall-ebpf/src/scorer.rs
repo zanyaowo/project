@@ -72,7 +72,7 @@ pub fn score_session(session_value: SessionValue, session_key: SessionKey) -> Op
     let total_bytes = session_value
         .orig_bytes
         .saturating_add(session_value.resp_bytes);
-    let total_bytes_squared = total_bytes.saturating_mul(total_bytes);
+    let total_bytes_squared = total_bytes.wrapping_mul(total_bytes);
 
     let val_denom: [u64; 5] = {
         [
@@ -84,11 +84,11 @@ pub fn score_session(session_value: SessionValue, session_key: SessionKey) -> Op
         ]
     };
 
-    let max_shape = (session_value.max_pkt_len as u64).saturating_mul(session_value.orig_pkts);
+    let max_shape = (session_value.max_pkt_len as u64).wrapping_mul(session_value.orig_pkts);
     let cv_numer = session_value
         .pkt_sum_sq
-        .saturating_mul(total_pkts)
-        .saturating_sub(total_bytes_squared);
+        .wrapping_mul(total_pkts)
+        .wrapping_sub(total_bytes_squared);
 
     let val_numer: [u64; 5] = {
         [
@@ -116,14 +116,14 @@ pub fn score_session(session_value: SessionValue, session_key: SessionKey) -> Op
                 0u32
             }
         } else if feature_index == FEAT_PACKET_LEN_MEAN {
-            if val_numer[i] > bound.value.saturating_mul(val_denom[i]) {
+            if val_numer[i] > bound.value.wrapping_mul(val_denom[i]) {
                 1u32
             } else {
                 0u32
             }
         } else {
-            let lhs = val_numer[i].saturating_mul(bound.denom);
-            let rhs = bound.numer.saturating_mul(val_denom[i]);
+            let lhs = val_numer[i].wrapping_mul(bound.denom);
+            let rhs = bound.numer.wrapping_mul(val_denom[i]);
             if lhs > rhs {
                 1u32
             } else {
@@ -155,7 +155,7 @@ pub fn score_session(session_value: SessionValue, session_key: SessionKey) -> Op
 
     if do_sample {
         // S_ref eligibility: clearly BENIGN (score*2 < threshold).
-        let benign = (*score as i64).saturating_mul(2) < config.threshold as i64;
+        let benign = (*score as i64).wrapping_mul(2) < config.threshold as i64;
         let flags = if benign { STATS_FLAG_BENIGN_GATE } else { 0 };
 
         unsafe {

@@ -209,11 +209,17 @@ def get_mixed_normal_sample(
         normal_label = src.get("normal_label", "BENIGN")
         post_tf      = src.get("post_transform", None)
 
+        read_cols = src.get("read_cols", None)
         result: list[pl.DataFrame] = []
         count = 0
         for path in paths:
-            lf = pl.scan_parquet(path).filter(pl.col(label_col) == normal_label)
-            df = lf.collect()
+            if read_cols is not None:
+                # Column-pruned read avoids OOM and cross-file schema conflicts
+                df = pl.read_parquet(path, columns=read_cols).filter(
+                    pl.col(label_col) == normal_label
+                )
+            else:
+                df = pl.scan_parquet(path).filter(pl.col(label_col) == normal_label).collect()
             if len(df) == 0:
                 continue
             if post_tf is not None:
@@ -231,6 +237,16 @@ def get_mixed_normal_sample(
 
     if not chunks:
         raise ValueError("所有 sources 均無法取得 BENIGN 資料")
+
+    if len(chunks) < len(sources):
+        import warnings
+        n_skipped = len(sources) - len(chunks)
+        warnings.warn(
+            f"get_mixed_normal_sample: {n_skipped}/{len(sources)} sources 無 BENIGN 資料，"
+            "邊界以部分來源計算，可能 overfit",
+            UserWarning,
+            stacklevel=2,
+        )
 
     # 欄位對齊：取交集或指定 common_cols
     if common_cols is not None:

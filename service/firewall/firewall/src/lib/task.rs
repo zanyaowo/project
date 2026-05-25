@@ -1,7 +1,6 @@
 use aya::maps::{MapData, PerCpuHashMap};
 use firewall_common::constants::{IPPROTO_TCP, IPPROTO_UDP};
 use firewall_common::session::{SessionKey, SessionValue};
-use std::time::SystemTime;
 
 pub fn kill_old_sessions(
     session_table: &mut PerCpuHashMap<&mut MapData, SessionKey, SessionValue>,
@@ -10,10 +9,13 @@ pub fn kill_old_sessions(
 
     let mut keys_to_remove = Vec::new();
 
-    let current_time_ns = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    // bpf_ktime_get_ns() uses CLOCK_BOOTTIME; SystemTime::UNIX_EPOCH would differ
+    // by the boot-time offset and cause every session to appear instantly expired.
+    let current_time_ns: u128 = unsafe {
+        let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+        libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut ts);
+        ts.tv_sec as u128 * 1_000_000_000 + ts.tv_nsec as u128
+    };
 
     for session in session_table.iter() {
         if let Ok((key, value)) = session {

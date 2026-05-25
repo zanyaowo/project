@@ -5,7 +5,7 @@ import polars as pl
 import argparse
 
 from service.model.data.sample import get_mixed_normal_sample
-from service.model.data.features import build_features
+from service.model.data.features import build_features, BIGFLOW_READ_COLS
 from service.model.pipeline.distill import CANONICAL_FEATURE_ORDER, DistilledClassifier
 from service.model.pipeline.trainer import get_trainer
 
@@ -39,6 +39,7 @@ def run(args: argparse.Namespace) -> None:
                 "paths": args.bf_dirs,
                 "label_col": "Attack",
                 "normal_label": "Benign",
+                "read_cols": BIGFLOW_READ_COLS,
                 "post_transform": build_features,
             },
         ],
