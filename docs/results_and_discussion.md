@@ -63,6 +63,45 @@
 
 ---
 
+## 2b. Bucket 數量 K 敏感度（static quantile bucket，in-scope）— 坐實「為何 N=2」
+
+**數據來源：`experiments/run33_static_bucket.py` → `run33_static_bucket.json`**（同 train/eval split）。
+分位桶邊界只用 BENIGN 訓練集算一次（static，不更新），IF 在整數桶索引上訓練。
+
+| N | eBPF table | ROC-AUC | PR-AUC | F1@FPR≤1% | R@1% | R@5% | R@10% |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **2** | 32-entry | 0.894 | 0.989 | **0.900** | 0.819 | 0.819 | 0.819 |
+| 4 | 1024-entry | 0.890 | 0.989 | **0.000** | 0.000 | 0.000 | 0.819 |
+| 8 | 32768-entry | 0.908 | 0.991 | 0.899 | 0.817 | 0.820 | 0.821 |
+
+**可寫：**
+- **AUC 幾乎不隨 N 變（0.89–0.91），但操作點穩健性非單調**：N=2 在 FPR 1%/5%/10% 皆穩定 Recall=0.82；N=4（1024-entry）在 **FPR≤5% 完全崩潰（Recall=0）**，只在 FPR≥10% 才恢復；N=8 恢復但需 32768-entry。
+- N=4 崩潰機制：較細的離散化把一小撮 BENIGN 流量推進稀有桶組合 → 高異常分數佔據分數頂端，在嚴格 FPR 門檻下把所有攻擊擋在門檻下方（per-attack 全 0）。這是離散化 artifact，非 AUC 能看出的問題。
+- → **論點（回答 reviewer「為何 K=2」）**：N=2 同時最小（32-entry，eBPF 友善）且在部署操作點最穩健；N=4 是「AUC 看似 OK 卻在操作點不可用」的陷阱；N=8 雖可用但 table 大 1000×、eBPF verifier/記憶體不可行。**選 N=2 不是精度妥協，是操作點穩健性 + 實作可行性的交集最優。**
+- 與 Run 30（cross-dataset AUC-only，N=2 avg 最優）一致，但本實驗在**固定操作點**上把 N=4 的不可用性顯式量化，論證更強。
+
+---
+
+## 2c. Score Regression vs Bucket Classification（E2）— 為何不直接回歸分數
+
+**數據來源：`experiments/run34_score_regression.py` → `run34_score_regression.json`**
+（teacher=Contract5 連續 IF，01-12 balanced 對半切 distill-fit/eval，student 訓練不用 ground-truth）
+
+| 模型 | ROC-AUC | F1@FPR≤1% | R@1% | Spearman→teacher |
+|------|:---:|:---:|:---:|:---:|
+| teacher（Contract5 連續） | 0.845 | 0.112 | 0.059 | 1.000 |
+| student-reg（DecisionTree, MSE→teacher） | 0.857 | 0.111 | 0.059 | **0.990** |
+| student-bucket（部署 32-entry） | 0.896 | **0.902** | 0.821 | **0.549** |
+
+**可寫（結論全部指向上表數字）：**
+- **回歸 student 忠實複製 teacher 排序（Spearman 0.990），代價是連 teacher 的操作點不可用性一起繼承**：F1@FPR≤1% 僅 0.111、R@1% 0.059，與 teacher（0.112 / 0.059）幾乎相同。
+- **bucket student 反而不忠實複製 teacher（Spearman 0.549），卻在操作點達 F1 0.902 / R 0.821**。
+- **誠實修正（推翻常見直覺與本專案原假設）**：價值不在「分位桶保留排序」——保留排序的是 regression。bucket 的 Spearman 偏低有兩個成因：(1) 它只有 ~16 個離散分數，與連續分數做秩相關有 tie 上限；(2) 它**刻意**用中位數二值化重塑分數分布，把攻擊離散進少數高分桶，使部署決策**與 teacher 不穩定的絕對分數脫鉤**。
+- → **論點**：「直接回歸異常分數」會把 teacher 在嚴格 FPR 下的脆弱操作點原封不動搬到 datapath；分位桶分類犧牲絕對分數保真度，換取操作點穩健與整數查表可部署性。這同時回答 E2 的 reviewer 問題與「為何不用 score regression」。
+- （指標註記）top-5% attack recall 三模型均 0.054，在本 eval（91% 為攻擊）下退化無鑑別力，故以 F1@FPR≤1% 為準。
+
+---
+
 ## 3. Table 2 — 系統開銷（偵測側，per-flow 延遲）
 
 | 路徑 | 延遲（µs / flow） | 說明 |

@@ -157,6 +157,8 @@
 | `[x]` | 29 | HOIC 特徵替換（init_win_bit 修復 HOIC）| `run29_hoic_feature_search.py` | `init_win_bit` 單特徵 HOIC AUC=0.9995；BigFlow 無此欄位不受影響 |
 | `[x]` | **30** | N-sweep 多點分位桶（N=2/4/8，CIC-only）| `run30_n_sweep.py` | N=2 avg=0.8943 最優（N=4=0.8806、N=8=0.9125 但 32768-entry 不可行）；SYN/UDP-LAG 為盲區；維持 N=2 contract |
 | `[x]` | 31 | **N=8 + Per-feature Additive Bucket Score（PAB-Score）驗證**：OLS fit additive model，同一 eval 切片三方對照 N=8 full / additive / N=2 全分位桶 contract（2026-05-31 完成）| `run31_additive_score.py` | **不採用**：additive avg AUC=0.7128 **連 N=2 contract（0.8943）都不如**；R²=0.66、max Δ=+0.39（SYN）、FPR 0.09→0.30。交叉項顯著，保留 N=2 contract |
+| `[x]` | 34 | **Student score regression vs bucket（E2，in-scope FPR≤1%）** | `run34_score_regression.py` | regression 忠實複製 teacher（Spearman 0.99）→ 繼承 teacher 操作點不可用（F1@1%=0.11）；bucket 不複製（Spearman 0.55）卻 F1=0.90 → **推翻「分位桶保留排序」假設**，價值在與 teacher 絕對分數脫鉤 |
+| `[x]` | 33 | **IF + static quantile bucket K 敏感度（E1/E6，in-scope FPR≤1%）** | `run33_static_bucket.py` | K=2 F1=0.900 全操作點穩健（32-entry）；**K=4 F1=0.000 操作點崩潰**（1024-entry，FPR≤5% R=0）；K=8 恢復但 32768-entry 不可行 → 坐實選 K=2 |
 | `[-]` | 32 | Layer 2 完整 IF 整合實驗：userspace runtime IF 與 kernel fast-path 分流策略 | `run32_dimensionless_vs_full.py` | **M1 完成（2026-06-07，CIC-2019）**：可重建 contract-5 連續版 AUC=0.845（FPR 0.066）≈ Full25 的 0.898，純無量綱 3 比例崩（0.659/FPR 0.485）。關鍵：Layer 2 主增益在「二值化→連續 IF」(0.60→0.85)、非「可重建→25 維」；特徵覆蓋度非阻塞點。依 CIC-2019 only，M2+ 暫不啟動 |
 
 ---
@@ -222,7 +224,7 @@
 | 狀態 | 方法 | 說明 |
 |------|------|------|
 | `[x]` | IF + fixed threshold（Contract5 連續 teacher）| **最終 teacher**；FPR≤1% 操作點 |
-| `[ ]` | IF + static quantile bucket | N=4 bucket，邊界只用訓練集算一次（不更新）|
+| `[x]` | IF + static quantile bucket | **已測（`run33_static_bucket.py`）**：N=4(1024) F1@1%=0.000（FPR≤5% 崩潰，僅 FPR≥10% 恢復）；N=2(32) F1=0.900 全操作點穩健；N=8(32768) 恢復但不可行 |
 | `[ ]` | Student score regression | Student 直接回歸 IF anomaly score（MSE loss）|
 | `[-]` | **Student quantile bucket KD** | 你的方法；目前以二值特徵 IF 直接產 32-entry 表（非正式 KD），正式 KL/CE 蒸餾待實作（§8.B-2）|
 | `[ ]` | Supervised baseline（選）| LR / RF，需 attack label，作為上限參考 |
@@ -251,12 +253,22 @@
 
 | 狀態 | 比較軸 | 說明 |
 |------|--------|------|
-| `[ ]` | Student output type | Regression（continuous score）vs Classification（bucket label）|
-| `[ ]` | Loss function | MSE/MAE vs CrossEntropy vs KL divergence |
-| `[ ]` | Ranking preservation | Spearman correlation（student score vs IF score）|
-| `[ ]` | Top-k attack recall | 前 k% 高風險流量是否被 student 正確抓到 |
+| `[x]` | Student output type | **已測（`run34_score_regression.py`）**：regression vs bucket，數據如下 |
+| `[x]` | Ranking preservation | Spearman(student vs teacher)：reg=0.990、bucket=0.549 |
+| `[-]` | Loss function | 已比 MSE(reg) vs 二值化 bucket；正式 CE/KL 蒸餾待 §8.B-2 |
+| `[x]` | Top-k attack recall | 三模型 top5%R 均 0.054（**退化指標**：eval 91% 為攻擊，top-5% 太小無鑑別力，改看 F1@1%）|
 
-**關鍵論點：** 分位桶保留相對排序（anomaly ranking），不強迫 student 重現不穩定的絕對分數值。
+**已測（CIC-DDoS2019 in-scope，eval half，FPR≤1%）：**
+
+| 模型 | AUC | F1@1% | R@1% | Spearman→teacher |
+|------|:---:|:---:|:---:|:---:|
+| teacher（Contract5 連續） | 0.845 | 0.112 | 0.059 | 1.000 |
+| student-reg（DT, MSE→teacher） | 0.857 | 0.111 | 0.059 | **0.990** |
+| student-bucket（32-entry） | 0.896 | **0.902** | 0.821 | **0.549** |
+
+> **⚠️ 原假設被推翻（2026-06-08）：** 原寫「分位桶保留相對排序」。實測相反——**保留排序的是 regression（Spearman 0.99），不是 bucket（0.549）**。
+>
+> **修正後關鍵論點：** 忠實回歸 teacher 分數（Spearman 0.99）會**連 teacher 在嚴格操作點的不可用性一起繼承**（F1@1% 0.11，與 teacher 同）；分位桶**刻意不複製**絕對分數（Spearman 0.55，部分因 ~16 個離散分數的 tie 上限），透過中位數二值化把攻擊離散進高分桶、與 teacher 不穩定分數脫鉤，換得操作點穩健（F1@1% 0.90）。詳見 `docs/results_and_discussion.md` §2c。
 
 ---
 
@@ -334,16 +346,19 @@
 
 ### 加分 E6 — Bucket 數量 K 敏感度（P2）
 
-**目標：** 回答「為什麼選 K=4」，同時呈現 eBPF table size 代價。
+**目標：** 回答「為什麼選 **K=2**」，同時呈現 eBPF table size 代價。
+**（2026-06-08 修正：原假設 K=4 為目標，實測推翻——K=4 在操作點崩潰，K=2 才是最優。）**
 
-**交付物：** 小 table 或 appendix（2 頁空間不夠時可在正文提一句）
+**交付物：** 小 table 或 appendix。**已測（`run33_static_bucket.py`，CIC-DDoS2019 in-scope，FPR≤1%）：**
 
-| 狀態 | K | F1 | PR-AUC | eBPF table size | 說明 |
-|------|---|----|--------|-----------------|------|
-| `[ ]` | 2 | — | — | 32-entry | 目前 contract |
-| `[ ]` | 4 | — | — | 1024-entry | 建議目標 |
-| `[ ]` | 8 | — | — | 32768-entry | 資訊上限 |
-| `[ ]` | 4-bucket policy | PASS / MONITOR / RATE_LIMIT / DROP | — | 1024-entry | 語意清晰 |
+| 狀態 | K | F1@1% | PR-AUC | AUC | eBPF table size | 說明 |
+|------|---|:---:|:---:|:---:|-----------------|------|
+| `[x]` | **2** | **0.900** | 0.989 | 0.894 | 32-entry | **目前 contract；全操作點 R=0.82 穩健、table 最小** |
+| `[x]` | 4 | 0.000 | 0.989 | 0.890 | 1024-entry | **FPR≤5% 崩潰（R=0），僅 FPR≥10% 恢復**；離散化 artifact |
+| `[x]` | 8 | 0.899 | 0.991 | 0.908 | 32768-entry | 恢復可用但 table 大 1000×，eBPF verifier/記憶體不可行 |
+| `[ ]` | 4-bucket policy | PASS / MONITOR / RATE_LIMIT / DROP | — | — | 1024-entry | 語意分級（與偵測力獨立，仍可設計）|
+
+> 結論：選 K=2 非精度妥協，是「操作點穩健性 + eBPF 可行性」交集最優。詳見 `docs/results_and_discussion.md` §2b。
 
 **Bucket 語意建議（K=4）：**
 
