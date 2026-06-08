@@ -1,7 +1,7 @@
 IFACE ?= wlp3s0
 CARGO := cargo
 
-.PHONY: help clean build-ebpf build-ebpf-debug test run-firewall run-firewall-debug run-test clean-tc bpftool-maps
+.PHONY: help clean build-ebpf build-ebpf-debug test run-firewall run-firewall-debug run-test clean-tc bpftool-maps verify-load verify-packets verify-boundary verify-blocklist
 
 help:  ## Show this help message
 	@echo "Available commands:"
@@ -60,3 +60,18 @@ bpftool-maps: ## Dump all loaded BPF map contents for debugging
 	sudo bpftool map dump name QUANTILE_BOUNDS 2>/dev/null || echo "  (not loaded)"
 	@echo "BLOCK_LIST:"
 	sudo bpftool map dump name BLOCK_LIST 2>/dev/null || echo "  (not loaded)"
+
+# --- Runtime validation (firewall must already be running in another terminal) ---
+VALIDATE := scripts/validate_runtime.sh
+
+verify-load: ## Check XDP/TC attached + maps loaded [IFACE=wlp3s0]
+	sudo IFACE=$(IFACE) $(VALIDATE) load
+
+verify-packets: ## Drive traffic -> inspect SCORE_TABLE/SESSIONS [IFACE=wlp3s0]
+	sudo IFACE=$(IFACE) $(VALIDATE) packets $(IFACE)
+
+verify-boundary: ## Flood -> AttackFreeze / BOUNDARY_META.version freeze [IFACE=wlp3s0]
+	sudo IFACE=$(IFACE) $(VALIDATE) boundary $(IFACE)
+
+verify-blocklist: ## Write BLOCK_LIST key -> confirm DROP [IFACE=wlp3s0 IP=1.2.3.4]
+	sudo IFACE=$(IFACE) $(VALIDATE) blocklist $(IFACE) $(IP)

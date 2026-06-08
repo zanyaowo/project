@@ -66,6 +66,34 @@ cd service/firewall && cargo xtask build-ebpf
 
 ---
 
+## On-hardware 驗證 runbook（`scripts/validate_runtime.sh`，2026-06-07）
+
+> 自動化上述 P0/P1 手動項目。**前提：firewall 必須先在另一終端啟動**（maps 已載入、XDP/TC 已 attach）；腳本只檢查 live maps 與打流量，不負責啟動 firewall。需 `root` + `bpftool`；打流量需 `hping3`。
+
+```bash
+# 終端 1：啟動 firewall（前景，持續運行）
+make run-firewall IFACE=<iface>
+
+# 終端 2：依序驗證
+make verify-load      IFACE=<iface>            # P0：XDP/TC attach + 6 個 map 載入、SCORE_TABLE=32、QUANTILE_BOUNDS=10
+make verify-packets   IFACE=<iface>            # P1：ping/hping3 → SESSIONS 成長、dump SCORE_TABLE/DROP_EVENTS
+make verify-boundary  IFACE=<iface>            # P1：SYN flood → 觀察 firewall log 'AttackFreeze' + BOUNDARY_META.version 凍結
+make verify-blocklist IFACE=<iface> IP=1.2.3.4 # 寫 IPv4-mapped key 進 BLOCK_LIST → hping3 → DROP_EVENTS 遞增 → 自動清除 entry
+```
+
+**逐項對應：**
+
+| 子指令 | 對應 checklist 項目 | 通過判準 |
+|--------|--------------------|---------|
+| `verify-load` | P0 attach / 各 map 載入 / SCORE_TABLE 32-entry / QUANTILE_BOUNDS 10-entry | XDP+TC PASS、5 map 全 loaded |
+| `verify-packets` | P1 正常封包通過、SCORE_TABLE 填入 | SESSIONS 數量成長 |
+| `verify-boundary` | P1 GateState AttackFreeze、version 遞增/凍結 | flood 時 log 出現 `AttackFreeze`、version 停止遞增 |
+| `verify-blocklist` | P0 封鎖 IP 封包被 DROP | DROP_EVENTS 遞增（單機 spoofed source 需配合 tracelog 確認） |
+
+> 注意：`verify-boundary` / `verify-blocklist` 的最終判定需人工觀察 firewall 終端 log 與 `bpftool prog tracelog`；單機環境下 spoofed-source 封包不一定真的回流經 XDP ingress，雙機拓樸最可靠。
+
+---
+
 ## P1 — 既有功能回歸測試
 
 ### XDP + TC 基本流程
@@ -145,6 +173,33 @@ cd service/firewall && cargo xtask build-ebpf
 - ✅ Logger 持續從 EVENTS_POOL ring buffer 讀取事件
 - ✅ Boundary Updater task 同時運行
 - ℹ️  AYA_LOGS warning 為預期行為（我們未定義 perf event array）
+
+---
+
+### 2026-06-07 — release verifier load 實機複驗（loopback）✅ / debug build verifier reject ⚠️
+
+**環境：** kernel 6.12.90-1-MANJARO，以預建 artifact 直接 load（未重編；nightly + bpf-linker 缺，現有 source 有未提交修改未涵蓋）。介面用 `lo`（SKB / `xdpgeneric`）避免擾動 live `wlp3s0`。
+
+| 項目 | 結果 |
+|------|------|
+| release artifact（`target/release/firewall`，05-23 build）load | ✅ verifier PASS，XDP+TC attach 到 lo |
+| Logger ring buffer | ✅ 即時讀到 loopback TCP session（`127.0.0.1` 多筆） |
+| SIGTERM graceful shutdown | ✅ `Shutdown complete`，lo 無 xdp / 無 tc egress filter / 無 clsact 殘留 |
+| **debug artifact（`target/debug/firewall`，05-31 build）load** | ❌ **verifier REJECT**：`last insn is not an exit or jmp`（0 insns processed） |
+
+**結論：**
+- 正式 load 路徑（release）在真機 kernel verifier 通過 — §8.C 🔴 verifier-load 任務完成。
+- **debug eBPF bytecode 過不了 verifier**（未最佳化，典型 debug-vs-release 差異）。影響 `make run-firewall-debug` 與 `make run-test`（integration `test_session_tracking` 走 debug bytecode 會撞同一錯）。
+  - **根因確認**：workspace 與 `firewall-ebpf/Cargo.toml` **完全沒有 `[profile.*]` 設定** → dev build 為 `opt-level=0`，aya 已知陷阱（opt-level=0 的 BPF object verifier 必拒）。
+  - **建議修法**（aya template 慣例，待有 nightly + bpf-linker 時套用並重編驗證）：於 eBPF 所屬 workspace `Cargo.toml` 加
+    ```toml
+    [profile.dev]
+    opt-level = 3
+    [profile.release]
+    lto = true
+    ```
+  - 在修好前：on-hardware 一律用 release artifact（`make run-firewall` / `make run-test` 需改走 release bytecode）。
+- 未跑：`verify-packets/boundary/blocklist` 的 map dump 與 flood — `bpftool` / `hping3` 未安裝且 pacman offline。
 
 ---
 

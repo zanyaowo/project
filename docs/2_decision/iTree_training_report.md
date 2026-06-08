@@ -1,18 +1,23 @@
 # Isolation Forest 訓練報告
 
-**最後更新：2026-05-03**  
-**對應版本：feat/model_develope（Run 25 最終方案）**
+**最後更新：2026-05-31**  
+**對應版本：CIC-IDS-2019 only 部署 contract（Run 28/29 校正、Run 30/31 後維持 N=2）**
+
+> 本文是 Python ML pipeline 與離線 IF / 蒸餾流程說明，不是 runtime Layer 2 Full IF 的實作文件。現況 runtime 唯一推論層是 eBPF fast-path；Full IF 仍在 `service/model/` 作為離線訓練、評估與未來 Layer 2 設計素材。
 
 ---
 
 ## 系統概覽
 
-Python ML pipeline 位於 `service/model/`，提供兩條推論路徑：
+Python ML pipeline 位於 `service/model/`，提供三條 model class（AUC 不可混引）：
 
 | 路徑 | 特徵數 | 執行位置 | 用途 |
 |------|:------:|---------|------|
-| **Full IF** | 25 個（`FEATURE_COLS`）| Python userspace | 邊緣案例、高精度判斷（Run 07 基準 AUC=0.9257）|
-| **Distilled** | 5 個（分位桶） | eBPF kernel（+ Python 驗證）| 大流量快速過濾（Run 25 AUC 見架構文件）|
+| **Contract5 連續 IF**（最終 teacher） | 5 個連續（`protocol + pkt_len_mean + fwd_max_q + sym_ratio + pkt_cv_sq`）| Python 離線 pipeline | **最終 teacher**：可由 eBPF SessionValue 重建、與 student 同特徵空間，作蒸餾來源與 Layer 2 reference |
+| **Full IF / Abs20**（baseline 參考） | 25/20 維絕對特徵（`FEATURE_COLS`）| Python 離線 pipeline | in-scope 上界參考；絕對特徵跨環境崩潰且 datapath 不可重建，**不作最終 teacher** |
+| **Distilled student** | 5-bit 二值化（32-entry 查表） | eBPF kernel（+ Python 驗證）| 目前唯一 runtime 推論路徑；部署 AUC 以 Run 28/29 的 32-entry contract 為準 |
+
+> **最終 teacher 是 Contract5 連續 IF，不是 Full25/Abs20。** in-scope CIC-DDoS2019 量測：Contract5 ROC-AUC=0.845 vs Abs20=0.892——Abs20 雖略高但不可部署（datapath 不可重建、跨環境崩潰）。完整對照與 Table 1/2 數據見 `docs/results_and_discussion.md`。
 
 ---
 
@@ -26,7 +31,7 @@ CICFlowMeter CSV / parquet
         ↓
    parquet_clean/
    ├── train/   (03-11, 2018-11-03)   ← 訓練集
-   └── test/    (01-12, 2018-12-01)   ← 驗證集（含 BigFlow）
+   └── test/    (01-12, 2018-12-01)   ← 驗證集（目前範圍：CIC-IDS-2019；BigFlow 技術路徑保留但暫不啟用）
         ↓
    pipeline/feature_select.py         ← 特徵選擇（更新 FEATURE_COLS 時執行）
         ↓
@@ -54,7 +59,7 @@ CICFlowMeter CSV / parquet
 ### schema.py — 常數唯一來源
 
 ```python
-FEATURE_COLS  # 25 個訓練特徵（固定順序，與 Rust ModelFeature struct 對應）
+FEATURE_COLS  # 25 個訓練特徵（固定順序；Python 離線 IF 使用）
 ID_COLS       # 不可入模型的識別符（Flow ID、IP、Timestamp、Label 等）
 STRING_TO_FLOAT_COLS  # ["Flow Bytes/s", "Flow Packets/s"]（需從字串 cast）
 CLIP_UPPER_PERCENTILE = 0.999  # inf cap 的百分位數
@@ -121,7 +126,7 @@ CLIP_UPPER_PERCENTILE = 0.999  # inf cap 的百分位數
 
 `build_features(df: pd.DataFrame) → pd.DataFrame`
 
-計算 BigFlow 等需要衍生的比率特徵（FwdMax_ratio、Sym_ratio、Pkt_CV 等）和 Protocol/Service 編碼，用於非 CICFlowMeter 格式資料的欄位對齊。
+計算 BigFlow 等需要衍生的比率特徵（FwdMax_ratio、Sym_ratio、Pkt_CV_sq 等）和 Protocol/Service 編碼，用於非 CICFlowMeter 格式資料的欄位對齊。BigFlow / Mixed BENIGN 路徑目前僅作跨資料集泛化預留，CIC-only 部署評估不啟用。
 
 ---
 
@@ -208,7 +213,7 @@ python -m service.model.pipeline.infer \
 
 ### pipeline/distill.py — 蒸餾推論（eBPF 對齊）
 
-實現 Run 25 確立的 5 特徵分位桶 + 查表法推論，作為 eBPF kernel 的 Python 側驗證：
+實現目前部署 contract 的 5 特徵、N=2 分位桶 + 32-entry 查表法推論，作為 eBPF kernel 的 Python 側驗證。注意：Run 25 是 IF-direct 證據模型；部署 AUC 必須以 Run 28/29 的 all-binary 32-entry contract 為準。
 
 ```python
 class DistilledClassifier:
@@ -229,18 +234,23 @@ class DistilledClassifier:
 |--------|---------|---------|------|
 | `fwd_max_q` | `Fwd Packet Length Max` | `Fwd Packet Length Mean` | 前向大小頂端離散度 |
 | `sym_ratio` | `Total Fwd Packets` | `Total Bwd Packets` | 方向對稱性 |
-| `pkt_cv` | `Packet Length Std` | `Packet Length Mean` | 封包大小 CV |
+| `pkt_cv_sq` | `(Packet Length Std)^2` | `(Packet Length Mean)^2` | 封包大小 CV²；kernel 避免 sqrt，禁止使用 raw `pkt_cv` contract |
 | `protocol` | `Protocol` | — | 協定號 |
 | `pkt_len_mean` | `Packet Length Mean` | — | 平均封包大小 |
 
 **蒸餾 JSON 格式：**
 ```json
 {
+  "version": 1,
+  "feature_order": ["protocol", "pkt_len_mean", "fwd_max_q", "sym_ratio", "pkt_cv_sq"],
+  "threshold_cmp": ">=",
+  "score_scale": 10000,
+  "length_unit": "packet_len",
   "threshold": 42,
   "quantile_bounds": [
     {"name": "fwd_max_q",    "type": "ratio",    "numer": 1048575, "denom": 1048576},
     {"name": "sym_ratio",    "type": "ratio",    "numer": ..., "denom": ...},
-    {"name": "pkt_cv",       "type": "ratio",    "numer": ..., "denom": ...},
+    {"name": "pkt_cv_sq",    "type": "ratio",    "numer": ..., "denom": ...},
     {"name": "protocol",     "type": "absolute", "value": 6},
     {"name": "pkt_len_mean", "type": "absolute", "value": 100}
   ],
@@ -248,7 +258,7 @@ class DistilledClassifier:
 }
 ```
 
-> **注意：** `quantile_bounds` 中的邊界必須以 **Mixed BENIGN**（CIC 15k + BigFlow 15k）計算；`score_table` 由 userspace 從訓練好的 IF 蒸餾（Python 端離線計算各組合的平均 IF anomaly_score）。
+> **注意：** 目前評估範圍限定 CIC-IDS-2019，部署 `model.json` 使用 CIC BENIGN only 邊界；Mixed BENIGN（CIC + BigFlow）只在未來恢復跨資料集泛化時啟用。`score_table` 由 Python 離線從訓練好的 IF 蒸餾，計算各 5-bit 組合的平均 IF anomaly_score。
 
 **CLI：**
 ```bash
@@ -316,7 +326,7 @@ uv run --project service/model \
     "scaler":  StandardScaler,         # 訓練時 fit，推論時 transform（不可重新 fit）
     "model":   IsolationForest,        # 200 棵樹，random_state=42
     "meta": {
-        "feature_cols":  list[str],    # 26 個特徵名（與 FEATURE_COLS 一致）
+        "feature_cols":  list[str],    # 25 個特徵名（與 FEATURE_COLS 一致）
         "threshold":     float,        # anomaly_score 超過此值即告警
         "contamination": float,        # 訓練時的 contamination 參數（預設 0.01）
     }
@@ -334,8 +344,8 @@ uv run --project service/model \
 | **inf 替換而非刪除** | `Flow Bytes/s` 在 duration=0 時為 inf，代表極高速流量，是 DDoS 判斷依據 |
 | **anomaly_score = -score_samples()** | 原始 IF score 越小越異常；取負後越大越可疑，符合直覺 |
 | **threshold = quantile(1 - contamination)** | 基於訓練集分位數，適應不同資料分布；可透過 `--override_threshold` 在推論時覆寫 |
-| **Mixed BENIGN 邊界** | 蒸餾模型的分位桶邊界必須以 CIC+BigFlow 混合 BENIGN 計算，純 CIC 邊界對 BigFlow 嚴重 overfit |
-| **5 特徵查表法** | 2^5=32 種組合預先計算分數存入 SCORE_TABLE；kernel 端只需 5 次比較 + 1 次查表 |
+| **CIC-only 部署範圍** | 目前評估與 `model.json` 以 CIC-IDS-2019 BENIGN 邊界為準；Mixed BENIGN 技術路徑保留給跨資料集泛化 |
+| **5 特徵查表法** | 2^5=32 種組合預先計算分數存入 SCORE_TABLE；kernel 端只需 5 次比較 + 1 次查表；特徵順序以 `kernel_model_contract.md` 為準 |
 
 ---
 

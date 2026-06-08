@@ -4,7 +4,7 @@
 
 XDP（特徵提取、黑名單）→ TC（分位桶推論、限流）→ Rust Userspace（adaptive boundary 校準、Map 下發）→ ⟦Layer 2 Userspace 完整 IF：規劃中，未實作⟧
 
-> 現況唯一推論層是 eBPF fast-path；Rust userspace 只做 logging + adaptive boundary，**無 runtime IF**。離線 IF 在 `service/model/`（訓練/蒸餾/實驗），未與 runtime 接通。Layer 2（邊緣案例完整 IF）為設計目標，集成計畫待撰寫（文件尚未建立）。
+> 現況唯一推論層是 eBPF fast-path；Rust userspace 只做 logging + adaptive boundary，**無 runtime IF**。離線 IF 在 `service/model/`（訓練/蒸餾/實驗），未與 runtime 接通。Layer 2（邊緣案例完整 IF）為設計目標，集成計畫見 `docs/2_decision/layer2_integration_plan.md`（設計階段，未排程實作）。
 
 **唯一架構依據：** `docs/_crosscut/kernel_defense_architecture.md`
 （eBPF verifier 限制、分位桶 N=2 決策、AUC 數字、數學模型均在此）
@@ -24,7 +24,11 @@ XDP（特徵提取、黑名單）→ TC（分位桶推論、限流）→ Rust Us
 
 **訓練邊界來源：** CIC-IDS-2019 BENIGN only（03-11 files，N=2）
 
-> **當前評估範圍：CIC-IDS-2019**（2026-05-25 決策）。Mixed BENIGN 技術路徑已預留（`get_mixed_normal_sample` + `build_features`），待跨資料集泛化時啟用；目前不做 BigFlow / IDS2018 評估。
+> **評估範圍＝CIC-IDS-2019，且跨資料集泛化為明確「不跨越」的硬邊界**（2026-05-25 範圍決策、2026-06-07 確立為硬邊界）。不以跨環境（BigFlow / IDS2018 / HOIC）表現作為任何決策依據，亦不在文件中以泛化論述包裝結論。Mixed BENIGN 技術路徑（`get_mixed_normal_sample` + `build_features`）僅作預留，啟用＝未來明確決定解除此邊界時。
+>
+> **特徵集已定案：contract-5**（protocol + pkt_len_mean + FwdMax_q + Sym_q + Pkt_CV_sq）。Run 32（2026-06-07）確認其連續版 in-scope AUC≈Full25（0.845 vs 0.898）且 FPR 更低；不追求完整 25 維，亦不採純無量綱（CIC FPR 48% 不可用）。
+>
+> **最終 teacher＝Contract5 連續 IF**（5 連續特徵），不是 Full25/Abs20 絕對特徵 IF。理由：可由 eBPF SessionValue 重建、與 binarized student 同特徵空間、跨環境不崩。Abs20 in-scope AUC 略高（0.892 vs 0.845）但不可部署。成果對照（Table 1/2、per-attack、延遲）見 `docs/results_and_discussion.md`，腳本 `experiments/results_benchmark.py`。
 
 **棄用 Shape_q 原因：** `Min Packet Length` 因 TCP ACK payload=0 退化為 Protocol 代理，跨環境無鑑別力
 
@@ -48,6 +52,7 @@ XDP（特徵提取、黑名單）→ TC（分位桶推論、限流）→ Rust Us
 - 分位桶特徵不可再使用 `Shape_q`（Min/Fwd Mean）；一律改用 `FwdMax_q`（Max/Fwd Mean）
 - 分位桶邊界以 **CIC 2019 BENIGN**（`get_normal_sample_from_files`）計算；跨資料集泛化時需改用 `get_mixed_normal_sample`（CIC+BigFlow），純 CIC 邊界已知對 BigFlow 嚴重 overfit
 - **資料檔案不可整份讀入記憶體**（`pl.read_parquet(big_file)` 無欄位篩選 = OOM crash）；必須擇一：(1) `columns=` 只讀需要的欄位、(2) `pl.scan_parquet` lazy 後 `.collect()`、(3) `get_normal_sample_from_files` / `get_balance_sample_from_files` 等 per-file 抽樣函式；IDS2018 / BigFlow 單檔有 80+ 欄，無條件 column-prune
+- **跨資料集泛化是「不跨越」的硬邊界**：不得以跨環境（BigFlow / IDS2018 / HOIC）表現作為決策依據或文件主軸；HOIC 等為 eBPF fast-path 的**已凍結非目標**，非待解問題。要解除此邊界需明確的範圍決策（屆時才啟用 Mixed BENIGN 路徑）。跑跨環境腳本作參考可以，但結論一律以 CIC-2019 為準
 
 ---
 
