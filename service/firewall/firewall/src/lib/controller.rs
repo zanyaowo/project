@@ -5,8 +5,9 @@ use aya::maps::Map;
 use aya::programs::{tc, SchedClassifier, Xdp, XdpFlags};
 use aya::Ebpf;
 use aya_log::EbpfLogger;
+use firewall_common::session::{ip_to_key_bytes, key_bytes_to_ip};
 use log::warn;
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 use std::sync::Arc;
 
 use crate::lib::config::{Config, XdpMode};
@@ -86,35 +87,35 @@ impl FirewallController {
         Ok(())
     }
 
-    pub fn block_ip(&mut self, ip: Ipv4Addr) -> anyhow::Result<()> {
+    pub fn block_ip(&mut self, ip: IpAddr) -> anyhow::Result<()> {
         let map = self
             .bpf
             .map_mut("BLOCK_LIST")
             .context("BLOCK_LIST not found")?;
-        let mut block_map: HashMap<_, u32, u32> = HashMap::try_from(map)?;
-        block_map.insert(u32::from(ip), 1u32, 0)?;
+        let mut block_map: HashMap<_, [u8; 16], u32> = HashMap::try_from(map)?;
+        block_map.insert(ip_to_key_bytes(ip), 1u32, 0)?;
         Ok(())
     }
 
-    pub fn unblock_ip(&mut self, ip: Ipv4Addr) -> anyhow::Result<()> {
+    pub fn unblock_ip(&mut self, ip: IpAddr) -> anyhow::Result<()> {
         let map = self
             .bpf
             .map_mut("BLOCK_LIST")
             .context("BLOCK_LIST not found")?;
-        let mut block_map: HashMap<_, u32, u32> = HashMap::try_from(map)?;
-        block_map.remove(&u32::from(ip))?;
+        let mut block_map: HashMap<_, [u8; 16], u32> = HashMap::try_from(map)?;
+        block_map.remove(&ip_to_key_bytes(ip))?;
         Ok(())
     }
 
-    pub fn list_blocked(&mut self) -> anyhow::Result<Vec<Ipv4Addr>> {
+    pub fn list_blocked(&mut self) -> anyhow::Result<Vec<IpAddr>> {
         let map = self
             .bpf
             .map_mut("BLOCK_LIST")
             .context("BLOCK_LIST not found")?;
-        let block_map: HashMap<_, u32, u32> = HashMap::try_from(map)?;
+        let block_map: HashMap<_, [u8; 16], u32> = HashMap::try_from(map)?;
         let ips = block_map
             .iter()
-            .filter_map(|r| r.ok().map(|(ip, _)| Ipv4Addr::from(ip)))
+            .filter_map(|r| r.ok().map(|(ip, _)| key_bytes_to_ip(ip)))
             .collect();
         Ok(ips)
     }

@@ -1,7 +1,6 @@
 use crate::lib::config::Config;
 use aya::maps::{MapData, PerCpuArray, PerCpuHashMap, RingBuf};
-use firewall_common::session::{SessionEvent, SessionKey, SessionValue};
-use std::net::Ipv4Addr;
+use firewall_common::session::{key_bytes_to_ip, SessionEvent, SessionKey, SessionValue};
 use std::ops::Deref;
 use std::os::fd::AsRawFd;
 use std::sync::Arc;
@@ -120,9 +119,9 @@ impl<'a> Logger<'a> {
                         if self.config.log.enable_session_log {
                             log::info!(
                                 "Log: Src={}:{}, Dst={}:{}, Proto={}, Bytes={}, Dur={:.4}s",
-                                Ipv4Addr::from(session_key.src_ip),
+                                key_bytes_to_ip(session_key.src_ip),
                                 session_key.src_port,
-                                Ipv4Addr::from(session_key.dst_ip),
+                                key_bytes_to_ip(session_key.dst_ip),
                                 session_key.dst_port,
                                 session_key.proto,
                                 bytes_sum,

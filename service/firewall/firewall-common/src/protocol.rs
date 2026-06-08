@@ -1,9 +1,10 @@
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 pub enum L4Info {
     Tcp(TcpInfo),
     Udp(UdpInfo),
     Icmp(IcmpInfo),
+    #[default]
     Unknown,
 }
 

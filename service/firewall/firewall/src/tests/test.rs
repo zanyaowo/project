@@ -1,10 +1,9 @@
 use anyhow::Result;
 use aya::include_bytes_aligned;
 use aya::maps::HashMap;
-use std::net::Ipv4Addr;
 use std::sync::Arc;
 
-use firewall_common::session::{SessionKey, SessionValue};
+use firewall_common::session::{key_bytes_to_ip, SessionKey, SessionValue};
 
 use crate::lib::config::Config;
 use crate::lib::controller::FirewallController;
@@ -32,8 +31,8 @@ pub async fn test_session_tracking() -> Result<()> {
                 let (key, value) = item?;
                 println!(
                     "  Session: {} -> {}, Pkts: {}/{}",
-                    Ipv4Addr::from(key.src_ip),
-                    Ipv4Addr::from(key.dst_ip),
+                    key_bytes_to_ip(key.src_ip),
+                    key_bytes_to_ip(key.dst_ip),
                     value.orig_pkts,
                     value.resp_pkts
                 );

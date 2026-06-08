@@ -11,7 +11,10 @@ static mut EVENTS_POOL: RingBuf = RingBuf::with_byte_size(EVENT_RING_BUF_SIZE, 0
 static mut DROP_EVENTS: PerCpuArray<u64> = PerCpuArray::with_max_entries(1, 0);
 
 // Updated signature to take raw values instead of Ipv4Hdr struct
-// This avoids the need to reconstruct the struct in main.rs
+// This avoids the need to reconstruct the struct in main.rs.
+// `#[inline(never)]` keeps the SessionKey/SessionEvent build in this function's
+// own BPF stack frame instead of the XDP caller's (512-byte stack limit).
+#[inline(never)]
 pub fn submit_event(session_update_params: &SessionUpdateParams, score: i32) {
     let key: SessionKey = SessionKey::from(session_update_params);
 

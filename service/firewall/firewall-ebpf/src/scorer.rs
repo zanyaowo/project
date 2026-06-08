@@ -8,7 +8,7 @@ use firewall_common::constants::{
     STATS_RING_BUF_SIZE, STATS_SAMPLE_SHIFT,
 };
 use firewall_common::model::*;
-use firewall_common::session::{SessionKey, SessionValue};
+use firewall_common::session::SessionValue;
 
 // QUANTILE_BOUNDS holds BOUNDARY_BANK_COUNT banks laid out contiguously:
 // bank `b` occupies entries [b*FEATURE_COUNT .. (b+1)*FEATURE_COUNT).
@@ -59,11 +59,20 @@ fn active_bank_base() -> u32 {
     }
 }
 
-pub fn score_session(session_value: SessionValue, session_key: SessionKey) -> Option<ScoreResult> {
-    let config = unsafe { MODEL_CONFIG.get(0)? };
+// Result is written through `out`; returns `true` when a score was produced.
+// Scalar return + by-ref args keep this a real BPF-to-BPF call with its own
+// stack frame, so the two [u64; 5] arrays (80 bytes) and the SessionValue copy
+// no longer land on the XDP caller's frame (BPF 512-byte stack limit). Mirrors
+// the scalar-return pattern used for `update_session` / `tc_egress_impl`.
+#[inline(never)]
+pub fn score_session(session_value: &SessionValue, proto: u8, out: &mut ScoreResult) -> bool {
+    let config = match unsafe { MODEL_CONFIG.get(0) } {
+        Some(c) => c,
+        None => return false,
+    };
 
     if config.enabled == 0 {
-        return None;
+        return false;
     }
 
     let total_pkts = session_value
@@ -92,7 +101,7 @@ pub fn score_session(session_value: SessionValue, session_key: SessionKey) -> Op
 
     let val_numer: [u64; 5] = {
         [
-            session_key.proto as u64,
+            proto as u64,
             total_bytes,
             max_shape,
             session_value.orig_pkts,
@@ -106,7 +115,10 @@ pub fn score_session(session_value: SessionValue, session_key: SessionKey) -> Op
     let mut index: u32 = 0x00;
 
     for feature_index in 0..FEATURE_COUNT {
-        let bound = unsafe { QUANTILE_BOUNDS.get(bank_base + feature_index)? };
+        let bound = match unsafe { QUANTILE_BOUNDS.get(bank_base + feature_index) } {
+            Some(b) => b,
+            None => return false,
+        };
 
         let i = feature_index as usize;
         let bit = if feature_index == FEAT_PROTOCOL {
@@ -134,7 +146,10 @@ pub fn score_session(session_value: SessionValue, session_key: SessionKey) -> Op
         index |= bit << feature_index;
     }
 
-    let score = unsafe { SCORE_TABLE.get(index)? };
+    let score = match unsafe { SCORE_TABLE.get(index) } {
+        Some(s) => s,
+        None => return false,
+    };
 
     let action = if *score >= config.threshold {
         config.action
@@ -182,8 +197,7 @@ pub fn score_session(session_value: SessionValue, session_key: SessionKey) -> Op
         }
     }
 
-    Some(ScoreResult {
-        score: *score,
-        action,
-    })
+    out.score = *score;
+    out.action = action;
+    true
 }

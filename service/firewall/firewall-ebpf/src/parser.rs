@@ -1,57 +1,52 @@
-use aya_ebpf::programs::{TcContext, XdpContext};
 use core::mem::size_of;
 use firewall_common::constants::{
     ETH_IPV4, ETH_IPV6, IPPROTO_ICMP, IPPROTO_ICMP_V6, IPPROTO_TCP, IPPROTO_UDP,
 };
 use firewall_common::protocol::{IcmpInfo, L4Info, TcpInfo, UdpInfo};
+use firewall_common::session::ipv4_mapped;
 use network_types::eth::EthHdr;
 use network_types::icmp::IcmpHdr;
 use network_types::ip::{IpProto, Ipv4Hdr, Ipv6Hdr};
 use network_types::tcp::TcpHdr;
 use network_types::udp::UdpHdr;
+
+// Extracted L3 (network-layer) fields. parse_ipv4 / parse_ipv6 read these
+// scalars directly through the packet pointer instead of copying the whole
+// Ipv4Hdr (20 B) / Ipv6Hdr (40 B) onto the stack — those full-header copies
+// were the dominant contributor to parse_packet's BPF stack frame.
+struct L3Fields {
+    src_ip: [u8; 16],
+    dst_ip: [u8; 16],
+    proto: u8,
+    is_ipv6: bool,
+    ip_header_len: usize,
+    ip_total_len: u16,
+    l4_offset: usize,
+}
+
+#[derive(Default)]
 pub struct PacketInfo {
-    pub src_ip: u32,
-    pub dst_ip: u32,
+    // 16-byte IPv6 form; IPv4 packets are stored IPv4-mapped (::ffff:a.b.c.d).
+    pub src_ip: [u8; 16],
+    pub dst_ip: [u8; 16],
     pub proto: u8,
+    /// True for native IPv6 packets. Used to gate IPv4-only fast paths
+    /// (e.g. the SYN-cookie XDP_TX, which rewrites an IPv4 header).
+    pub is_ipv6: bool,
     pub len: u16,
     pub payload_len: u64,
     pub l4_info: L4Info,
     pub padding: [u8; 5],
 }
 
-pub trait PacketContext {
-    fn len(&self) -> u32;
-    fn data_start(&self) -> usize;
-    fn data_end(&self) -> usize;
-}
-
-impl PacketContext for XdpContext {
-    fn len(&self) -> u32 {
-        (self.data_end() - self.data()) as u32
-    }
-
-    fn data_start(&self) -> usize {
-        self.data()
-    }
-
-    fn data_end(&self) -> usize {
-        self.data_end()
-    }
-}
-
-impl PacketContext for TcContext {
-    fn len(&self) -> u32 {
-        self.len()
-    }
-
-    fn data_start(&self) -> usize {
-        self.data()
-    }
-
-    fn data_end(&self) -> usize {
-        self.data_end()
-    }
-}
+// Packet bounds (`start` / `end`) are passed as plain `usize` rather than
+// behind a `PacketContext` trait + `&C` argument. Going through a trait method
+// that returns `usize` (e.g. aya's `XdpContext::data_end()` = `(*ctx).data_end
+// as usize`) inside a non-inlined subprogram makes LLVM re-truncate the
+// arg-promoted 64-bit packet pointer (`pkt_end as u32 as usize` → `pkt_end <<
+// 32`), which the verifier rejects ("pointer arithmetic on pkt_end
+// prohibited"). The caller reads `data()` / `data_end()` once in the inlined
+// entry frame; here we only *compare* against `end`, never reconstruct it.
 
 /// Returns a raw pointer to `T` at `start + offset` after bounds-checking against `end`.
 ///
@@ -70,39 +65,80 @@ unsafe fn ptr_at<T>(start: usize, end: usize, offset: usize) -> Result<*const T,
     Ok(start.wrapping_add(offset) as *const T)
 }
 
-pub fn parse_eth<C: PacketContext>(ctx: &C) -> Result<(u16, usize), ()> {
+pub fn parse_eth(start: usize, end: usize) -> Result<(u16, usize), ()> {
     // SAFETY: `ptr_at` verifies that [0, size_of::<EthHdr>()) lies within
-    // [data_start, data_end). `EthHdr` is `#[repr(C, packed)]`, so unaligned reads
+    // [start, end). `EthHdr` is `#[repr(C, packed)]`, so unaligned reads
     // are valid and all field accesses are safe once bounds are confirmed.
     unsafe {
-        let eth_hdr: *const EthHdr = ptr_at(ctx.data_start(), ctx.data_end(), 0)?;
+        let eth_hdr: *const EthHdr = ptr_at(start, end, 0)?;
         let eth_type = u16::from_be((*eth_hdr).ether_type);
         Ok((eth_type, size_of::<EthHdr>()))
     }
 }
 
-pub fn parse_ipv4<C: PacketContext>(ctx: &C, offset: usize) -> Result<(Ipv4Hdr, usize), ()> {
+fn parse_ipv4(start: usize, end: usize, offset: usize) -> Result<L3Fields, ()> {
     // SAFETY: `ptr_at` verifies that [offset, offset + size_of::<Ipv4Hdr>()) lies within
-    // [data_start, data_end). `Ipv4Hdr` is `#[repr(C, packed)]`, allowing unaligned reads.
-    // The struct is copied out by value (`*ipv4_hdr`), so no lifetime dependency on the
-    // raw pointer remains after this function returns.
+    // [start, end). `Ipv4Hdr` is `#[repr(C, packed)]`, allowing unaligned reads.
+    // The header is copied out by value (`*ptr`) so all field reads — and the
+    // ipv4_mapped() address construction — operate on stack scalars. Reading
+    // fields through the live packet pointer instead keeps that pointer alive
+    // into the PacketInfo build, where the verifier rejects spilling a packet
+    // pointer into a sub-8-byte field ("invalid size of register spill").
     unsafe {
-        let ipv4_hdr: *const Ipv4Hdr = ptr_at(ctx.data_start(), ctx.data_end(), offset)?;
-        Ok((*ipv4_hdr, offset + size_of::<Ipv4Hdr>()))
+        let ipv4_hdr: Ipv4Hdr = *ptr_at::<Ipv4Hdr>(start, end, offset)?;
+        let proto = match ipv4_hdr.proto {
+            IpProto::Tcp => IPPROTO_TCP,
+            IpProto::Udp => IPPROTO_UDP,
+            IpProto::Icmp => IPPROTO_ICMP,
+            _ => 0,
+        };
+        Ok(L3Fields {
+            src_ip: ipv4_mapped(ipv4_hdr.src_addr),
+            dst_ip: ipv4_mapped(ipv4_hdr.dst_addr),
+            proto,
+            is_ipv6: false,
+            ip_header_len: ((ipv4_hdr.vihl & 0x0F) as usize) * 4,
+            ip_total_len: u16::from_be_bytes(ipv4_hdr.tot_len),
+            l4_offset: offset + size_of::<Ipv4Hdr>(),
+        })
     }
 }
 
-pub fn parse_ipv6<C: PacketContext>(ctx: &C, offset: usize) -> Result<(Ipv6Hdr, usize), ()> {
+fn parse_ipv6(start: usize, end: usize, offset: usize) -> Result<L3Fields, ()> {
     // SAFETY: `ptr_at` verifies that [offset, offset + size_of::<Ipv6Hdr>()) lies within
-    // [data_start, data_end). `Ipv6Hdr` is `#[repr(C, packed)]`, allowing unaligned reads.
-    // The struct is copied out by value, so no raw pointer escapes this function.
+    // [start, end). `Ipv6Hdr` is `#[repr(C, packed)]`, allowing unaligned reads.
+    // The header is copied out by value (`*ptr`) before any field is read, for the same
+    // reason as parse_ipv4: reading the 16-byte src/dst addresses through the live packet
+    // pointer keeps it alive into the PacketInfo build, where spilling a packet pointer
+    // into a sub-8-byte field is rejected ("invalid size of register spill"). Copying
+    // first materialises the addresses as stack scalars.
     unsafe {
-        let hdr: *const Ipv6Hdr = ptr_at(ctx.data_start(), ctx.data_end(), offset)?;
-        Ok((*hdr, offset + size_of::<Ipv6Hdr>()))
+        let hdr: Ipv6Hdr = *ptr_at::<Ipv6Hdr>(start, end, offset)?;
+        // next_hdr is the protocol number (IpProto is repr(u8)). Extension headers
+        // are not followed; unknown next_hdr falls through to L4Info::Unknown.
+        let proto = match hdr.next_hdr as u8 {
+            IPPROTO_TCP => IPPROTO_TCP,
+            IPPROTO_UDP => IPPROTO_UDP,
+            IPPROTO_ICMP_V6 => IPPROTO_ICMP_V6,
+            _ => 0,
+        };
+        // IPv6 payload_len excludes the 40-byte header; add it back so `len`
+        // stays comparable to IPv4 tot_len downstream.
+        let ip_total_len =
+            u16::from_be_bytes(hdr.payload_len).saturating_add(size_of::<Ipv6Hdr>() as u16);
+        Ok(L3Fields {
+            src_ip: hdr.src_addr,
+            dst_ip: hdr.dst_addr,
+            proto,
+            is_ipv6: true,
+            ip_header_len: size_of::<Ipv6Hdr>(),
+            ip_total_len,
+            l4_offset: offset + size_of::<Ipv6Hdr>(),
+        })
     }
 }
 
-pub fn parse_tcp<C: PacketContext>(ctx: &C, offset: usize) -> Result<TcpInfo, ()> {
+pub fn parse_tcp(start: usize, end: usize, offset: usize) -> Result<TcpInfo, ()> {
     // SAFETY:
     // - `ptr_at` for `tcp_hdr` verifies [offset, offset + size_of::<TcpHdr>()) is in bounds.
     //   All field accesses (source, dest, seq, ack_seq, window) are within TcpHdr (20 bytes).
@@ -111,17 +147,17 @@ pub fn parse_tcp<C: PacketContext>(ctx: &C, offset: usize) -> Result<TcpInfo, ()
     //   an explicit bounds check before every pointer dereference.
     // - `TcpHdr` is `#[repr(C, packed)]`, so all field reads are unaligned-safe.
     unsafe {
-        let tcp_hdr: *const TcpHdr = ptr_at(ctx.data_start(), ctx.data_end(), offset)?;
+        let tcp_hdr: *const TcpHdr = ptr_at(start, end, offset)?;
         let src_port = u16::from_be_bytes((*tcp_hdr).source);
         let dst_port = u16::from_be_bytes((*tcp_hdr).dest);
         let seq = u32::from_be_bytes((*tcp_hdr).seq);
         let ack_seq = u32::from_be_bytes((*tcp_hdr).ack_seq);
         let windows = u16::from_be_bytes((*tcp_hdr).window);
 
-        let flag_ptr: *const u8 = ptr_at(ctx.data_start(), ctx.data_end(), offset + 13)?;
+        let flag_ptr: *const u8 = ptr_at(start, end, offset + 13)?;
         let flags: u8 = *flag_ptr;
 
-        let offset_byte: u8 = *ptr_at(ctx.data_start(), ctx.data_end(), offset + 12)?;
+        let offset_byte: u8 = *ptr_at(start, end, offset + 12)?;
         let data_offset = (offset_byte & 0xF0) >> 4;
         let header_len = (data_offset * 4) as u8;
 
@@ -137,11 +173,11 @@ pub fn parse_tcp<C: PacketContext>(ctx: &C, offset: usize) -> Result<TcpInfo, ()
     }
 }
 
-pub fn parse_udp<C: PacketContext>(ctx: &C, offset: usize) -> Result<UdpInfo, ()> {
+pub fn parse_udp(start: usize, end: usize, offset: usize) -> Result<UdpInfo, ()> {
     // SAFETY: `ptr_at` verifies that [offset, offset + size_of::<UdpHdr>()) lies within
-    // [data_start, data_end). `UdpHdr` is `#[repr(C, packed)]`, allowing unaligned reads.
+    // [start, end). `UdpHdr` is `#[repr(C, packed)]`, allowing unaligned reads.
     unsafe {
-        let udp_hdr: *const UdpHdr = ptr_at(ctx.data_start(), ctx.data_end(), offset)?;
+        let udp_hdr: *const UdpHdr = ptr_at(start, end, offset)?;
         let src_port = u16::from_be_bytes((*udp_hdr).src);
         let dst_port = u16::from_be_bytes((*udp_hdr).dst);
         let header_len = size_of::<UdpHdr>() as u8;
@@ -155,7 +191,7 @@ pub fn parse_udp<C: PacketContext>(ctx: &C, offset: usize) -> Result<UdpInfo, ()
     }
 }
 
-pub fn parse_icmp<C: PacketContext>(ctx: &C, offset: usize) -> Result<IcmpInfo, ()> {
+pub fn parse_icmp(start: usize, end: usize, offset: usize) -> Result<IcmpInfo, ()> {
     // SAFETY: `ptr_at` verifies that [offset, offset + size_of::<IcmpHdr>()) is in bounds.
     // For echo request (type 8) and echo reply (type 0), additional `ptr_at` calls verify
     // offset+4 (identifier) and offset+6 (sequence number) individually, as required by the
@@ -163,17 +199,17 @@ pub fn parse_icmp<C: PacketContext>(ctx: &C, offset: usize) -> Result<IcmpInfo, 
     // still considered valid with id/seq defaulting to 0.
     // `IcmpHdr` is `#[repr(C, packed)]`, so all field reads are unaligned-safe.
     unsafe {
-        let icmp_hdr: *const IcmpHdr = ptr_at(ctx.data_start(), ctx.data_end(), offset)?;
+        let icmp_hdr: *const IcmpHdr = ptr_at(start, end, offset)?;
         let icmp_type = (*icmp_hdr).type_;
         let icmp_code = (*icmp_hdr).code;
         let mut icmp_id = 0u16;
         let mut icmp_seq = 0u16;
 
         if icmp_type == 8 || icmp_type == 0 {
-            if let Ok(id_ptr) = ptr_at::<u16>(ctx.data_start(), ctx.data_end(), offset + 4) {
+            if let Ok(id_ptr) = ptr_at::<u16>(start, end, offset + 4) {
                 icmp_id = u16::from_be(*id_ptr);
             }
-            if let Ok(seq_ptr) = ptr_at::<u16>(ctx.data_start(), ctx.data_end(), offset + 6) {
+            if let Ok(seq_ptr) = ptr_at::<u16>(start, end, offset + 6) {
                 icmp_seq = u16::from_be(*seq_ptr);
             }
         }
@@ -189,47 +225,58 @@ pub fn parse_icmp<C: PacketContext>(ctx: &C, offset: usize) -> Result<IcmpInfo, 
     }
 }
 
-pub fn parse_packet<C: PacketContext>(ctx: &C) -> Result<PacketInfo, ()> {
-    let (eth_type, l3_offset) = parse_eth(ctx)?;
-    let mut ip_header_len = 0;
-    let mut ip_total_len = 0;
+// `#[inline(never)]` keeps the header-copy temporaries (a full Ipv4Hdr/Ipv6Hdr
+// copied by value, plus PacketInfo construction) inside this function's own
+// BPF stack frame instead of folding them into the xdp_firewall entry frame,
+// which would overflow the 512-byte per-subprogram stack limit at opt-level=3.
+// The out-param + bool return (rather than Result<PacketInfo, ()>) avoids
+// bpf-linker's "aggregate returns are not supported" rejection for non-inlined
+// fns — the same pattern used by update_session / score_session.
+//
+// `start` / `end` (packet bounds) and `total_len` are all passed in rather than
+// derived from a context here: deriving them via trait/aya accessors inside this
+// non-inlined subprogram makes LLVM re-truncate the arg-promoted packet pointers
+// (`pkt_end << 32`), which the verifier rejects. The caller reads them once in
+// the inlined entry frame. `total_len` differs from `end - start` for TC (skb
+// length), so it is computed by the caller, not here.
+#[inline(never)]
+pub fn parse_packet(start: usize, end: usize, total_len: u64, out: &mut PacketInfo) -> bool {
+    let (eth_type, l3_offset) = match parse_eth(start, end) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
 
-    let (src_ip, dst_ip, proto, l4_offset) = match eth_type {
-        ETH_IPV4 => {
-            let (ipv4_hdr, l4_offset): (Ipv4Hdr, usize) = parse_ipv4(ctx, l3_offset)?;
-            let src_ip = u32::from_be_bytes(ipv4_hdr.src_addr);
-            let dst_ip = u32::from_be_bytes(ipv4_hdr.dst_addr);
-            ip_header_len = ((ipv4_hdr.vihl & 0x0F) as usize) * 4;
-            ip_total_len = u16::from_be_bytes(ipv4_hdr.tot_len);
-
-            let proto_u8 = match ipv4_hdr.proto {
-                IpProto::Tcp => IPPROTO_TCP,
-                IpProto::Udp => IPPROTO_UDP,
-                IpProto::Icmp => IPPROTO_ICMP,
-                _ => 0,
-            };
-
-            (src_ip, dst_ip, proto_u8, l4_offset)
-        }
-        ETH_IPV6 => {
-            return Err(());
-        }
-        _ => return Err(()),
+    let l3 = match eth_type {
+        ETH_IPV4 => parse_ipv4(start, end, l3_offset),
+        ETH_IPV6 => parse_ipv6(start, end, l3_offset),
+        _ => return false,
+    };
+    let L3Fields {
+        src_ip,
+        dst_ip,
+        proto,
+        is_ipv6,
+        ip_header_len,
+        ip_total_len,
+        l4_offset,
+    } = match l3 {
+        Ok(v) => v,
+        Err(_) => return false,
     };
 
     let l4_info = match proto {
-        IPPROTO_TCP => {
-            let tcp = parse_tcp(ctx, l4_offset)?;
-            L4Info::Tcp(tcp)
-        }
-        IPPROTO_UDP => {
-            let udp = parse_udp(ctx, l4_offset)?;
-            L4Info::Udp(udp)
-        }
-        IPPROTO_ICMP | IPPROTO_ICMP_V6 => {
-            let icmp = parse_icmp(ctx, l4_offset)?;
-            L4Info::Icmp(icmp)
-        }
+        IPPROTO_TCP => match parse_tcp(start, end, l4_offset) {
+            Ok(tcp) => L4Info::Tcp(tcp),
+            Err(_) => return false,
+        },
+        IPPROTO_UDP => match parse_udp(start, end, l4_offset) {
+            Ok(udp) => L4Info::Udp(udp),
+            Err(_) => return false,
+        },
+        IPPROTO_ICMP | IPPROTO_ICMP_V6 => match parse_icmp(start, end, l4_offset) {
+            Ok(icmp) => L4Info::Icmp(icmp),
+            Err(_) => return false,
+        },
         _ => L4Info::Unknown,
     };
 
@@ -240,8 +287,6 @@ pub fn parse_packet<C: PacketContext>(ctx: &C) -> Result<PacketInfo, ()> {
         _ => 0,
     };
 
-    let total_len = ctx.len() as u64;
-
     let header_len = (l3_offset + ip_header_len + l4_header_len) as u64;
 
     let payload_len = if total_len > header_len {
@@ -250,15 +295,16 @@ pub fn parse_packet<C: PacketContext>(ctx: &C) -> Result<PacketInfo, ()> {
         0
     };
 
-    let packet = PacketInfo {
+    *out = PacketInfo {
         src_ip,
         dst_ip,
         proto,
+        is_ipv6,
         len: ip_total_len,
         payload_len,
         l4_info,
         padding: [0; 5],
     };
 
-    Ok(packet)
+    true
 }
