@@ -1,6 +1,6 @@
 # eBPF 分位桶邊界自適應更新計畫（v2：dual-sketch + gated update）
 
-**狀態：** 設計修訂完成，待實作
+**狀態：** 已落地；本文保留為 dual-sketch + gated update 的設計與實作紀錄
 **依據：** Run 27–29 實驗結論 + kernel_defense_architecture.md Layer 設計 + 設計回饋（gated update / dual sketch / versioned eBPF map）
 **v1 → v2 變更摘要：** 由單路徑「偵測 drift → 更新」改為「reference / live 雙草圖 + gate 判斷後才更新 reference 邊界」，並把 eBPF 熱更新具體化為 versioned + double-buffering + fixed-point + TTL。
 

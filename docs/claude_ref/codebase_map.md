@@ -250,7 +250,7 @@ schema.py → feature_select.py → trainer/ → infer.py
 | | `active_bank_base` | 讀 `BOUNDARY_META` 決定使用哪個 bank（雙緩衝），含 TTL 過期回退 bank 0 |
 | | `sat_u32` | u64 → u32 飽和轉換（避免溢位） |
 | | maps | `QUANTILE_BOUNDS`(2 bank)、`SCORE_TABLE`、`MODEL_CONFIG`、`BOUNDARY_META`、`STATS_RING_BUF`、`STATS_SAMPLE_CTR` |
-| `src/parser.rs` | `PacketInfo` struct、`PacketContext` trait（`impl` for `XdpContext` / `TcContext`） | 統一 XDP/TC 封包解析（原 `archive/packetinfo_redesign_proposal.md` 已由此實作）|
+| `src/parser.rs` | `PacketInfo` struct、`PacketContext` trait（`impl` for `XdpContext` / `TcContext`） | 統一 XDP/TC 封包解析（IPv4/IPv6；舊 PacketInfo 重構提案已由此實作並移除）|
 | | `parse_eth` / `parse_ipv4` / `parse_ipv6` / `parse_tcp` / `parse_udp` / `parse_icmp` / `parse_packet` | L2→L4 分層解析（皆 `<C: PacketContext>` 泛型） |
 | `src/table.rs` | `SESSIONS`(LruPerCpuHashMap)、`SessionUpdateParams` struct；`impl From<&PacketInfo>` / `impl From<&SessionUpdateParams> for SessionKey` | 雙向 session 聚合 key 推導 |
 | | `update_session(params)` / `is_connection_closed(flag)` | 統計更新、TCP 連線狀態判斷 |
@@ -306,7 +306,5 @@ schema.py → feature_select.py → trainer/ → infer.py
 | `kernel_model_contract.md` | P0 工程契約：蒸餾 ↔ loader ↔ scorer 對齊 |
 | `feature_selection_log.md` | 特徵選擇實驗（Run 01–16,18 + 附錄 A-1～A-9）|
 | `quantile_bucket_strategy_log.md` | 分位桶策略 / 模型訓練（Run 17,19–29 + A-10/11/12，contract Run 28/29）|
-| `boundary_adaptive_update_plan.md` | 分位桶自適應更新 v2（dual-sketch + gated）|
-| `userspace_improvement_plan.md` | userspace 品質審查追蹤（持續更新）|
+| `boundary_adaptive_update_plan.md` | 分位桶自適應更新 v2（dual-sketch + gated；已落地，保留為設計與實作紀錄）|
 | `iTree_training_report.md` / `presentation_summary.md` | IF 訓練報告 / 研究總結（論文素材，與 log 部分重疊）|
-| `archive/packetinfo_redesign_proposal.md` | 已被 `parser.rs` 實作取代（歷史）|

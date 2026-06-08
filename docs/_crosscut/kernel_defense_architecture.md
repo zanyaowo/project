@@ -148,7 +148,7 @@ eBPF 最強大的功能是 `BPF_MAP`。與其在內核計算 log 或複雜乘法
 | **TC** | 分位桶推論、限流執行 | FwdMax_q / Sym_q / Pkt_CV_q 計算 |
 | **Userspace（Rust）** | 邊界重算、Map 下發、自適應校準 | 以 Mixed BENIGN 計算新邊界；adaptive boundary（`boundary_updater.rs`）|
 
-> ⚠️ **規劃中，尚未實作：** 「Userspace（Python）完整 IF 推論（邊緣案例）」為 Layer 2 設計目標，**目前未實作**——`firewall` userspace 僅有 logging（`logger.rs`）+ adaptive boundary（`boundary_updater.rs`），無任何 runtime IF 推論路徑。**離線** IF 程式碼存在於 `service/model/`（`train.py`/`infer.py`/`trainer/if_.py`），但與 runtime 未接通。現況唯一推論層為 eBPF fast-path；HOIC 等為其已知限制。Layer 2 的集成步驟待撰寫（計畫文件尚未建立）。
+> ⚠️ **擱置（泛化邊界外的凍結非目標）：** 「Userspace（Python）完整 IF 推論（邊緣案例）」原為 Layer 2 設計目標，**目前未實作且已擱置**——`firewall` userspace 僅有 logging（`logger.rs`）+ adaptive boundary（`boundary_updater.rs`），無任何 runtime IF 推論路徑。**離線** IF 程式碼存在於 `service/model/`（`train.py`/`infer.py`/`trainer/if_.py`），但與 runtime 未接通。現況唯一推論層為 eBPF fast-path；HOIC 等為其**凍結非目標**（屬泛化邊界外，非待解問題）。Layer 2 的集成設計（若未來解除邊界）見 `docs/2_decision/layer2_integration_plan.md`。
 
 **XDP 新增需求：** per-flow struct 需新增 `fwd_pkt_max` 欄位，在 XDP hook 每封包更新：
 
@@ -172,11 +172,11 @@ if (pkt_len > flow->fwd_pkt_max && direction == FWD)
            無浮點除法        交叉乘法比對       TC redirect
 ```
 
-**Kernel 推論（現況）vs Userspace 完整 IF（Layer 2，規劃中未實作）：**
+**Kernel 推論（現況）vs Userspace 完整 IF（Layer 2，已擱置）：**
 
-> 右欄為 **Layer 2 設計目標**，目前未實作（集成計畫待撰寫）。左欄是現況唯一推論層。右欄數字為規劃預期，非已驗證。
+> 右欄為 **Layer 2 設計目標**，目前未實作（集成計畫見 `docs/2_decision/layer2_integration_plan.md`）。左欄是現況唯一推論層。右欄數字為規劃預期，非已驗證。
 
-| 維度 | Kernel 推論（現況）| Userspace 完整 IF（Layer 2，規劃）|
+| 維度 | Kernel 推論（現況）| Userspace 完整 IF（Layer 2，已擱置）|
 |------|------------|----------------------|
 | 決策延遲 | < 1 µs（封包路徑內）| 1–10 ms（ring buffer + IPC）|
 | 模型複雜度 | 受 verifier 限制，需蒸餾 | 無限制，可用完整 IF |
@@ -231,10 +231,12 @@ IsolationForest 完整模型有 200 棵樹 × ~100 節點 = ~20,000 節點，超
 | 選項 | 延遲 | 精度 | 狀態 |
 |------|------|------|---------|
 | **Kernel-side（現況唯一推論層）** | < 1 µs | 部署 contract = Run 28 D（HOIC 0.0001、avg 0.60，見「最終 AUC-ROC」）| 已實作 |
-| Userspace 完整 IF（Layer 2）| 1–10 ms | 預期完整精度（取決於特徵重建）| **規劃中，未實作** |
+| Userspace 完整 IF（Layer 2）| 1–10 ms | 預期完整精度（取決於特徵重建）| **擱置（泛化邊界外的凍結非目標）** |
 
-**目標架構：分層（Layer 1 Kernel + Layer 2 Userspace）；現況：僅 Layer 1 已實作。**
-Layer 2（Userspace 完整 IF）為設計目標但尚未接通 runtime（離線 IF 在 `service/model/`，未與 `firewall` userspace 整合）。在 Layer 2 就位前，LOIC-HTTP（Layer 4 特徵無法突破，Layer 2 用同樣 Layer 4 特徵亦無法救）、HOIC（Protocol 二值化抹掉 IF 幾何，Run 28/29）皆為 **eBPF fast-path 的已知限制**。HOIC 的低成本替代解（eBPF 端 `init_win_ratio` 硬規則，無需整個 Layer 2 IF）見「待研究問題」；Layer 2 集成步驟待撰寫。
+**現況決策（2026-06-07）：唯一推論層＝Kernel-side fast-path（contract-5 二值化）；Userspace 推論（Layer 2）擱置。**
+Layer 2 的唯一潛在收益標的是 HOIC，而 HOIC 屬跨資料集泛化；依「泛化＝不跨越的硬邊界」決策（見 `CLAUDE.md`），HOIC / LOIC-HTTP 皆為 **eBPF fast-path 的凍結非目標（非待解問題）**，Layer 2 因此無 in-scope 驅動力而擱置。
+> Run 32（2026-06-07）量到：contract-5 **連續版** in-scope AUC≈0.85，部署的**二值化版** avg≈0.60——這 0.25 差距只有 userspace 連續 IF 能拿回，但該增益對應的標的（HOIC 等）在泛化邊界外，故刻意 parked。
+Layer 2 集成設計（若未來解除邊界）見 `docs/2_decision/layer2_integration_plan.md`；HOIC 的低成本替代解（eBPF 端 `init_win_ratio` 硬規則）僅作該情境下的備選，現行不追。
 
 ### 軸心二：特徵計算方式
 
@@ -262,10 +264,10 @@ N 值選擇依據（Run 25 掃描，**IF-direct 證據，非部署 contract**）
 
 | 選項 | 狀態 | 備注 |
 |------|------|------|
-| **分位桶 N=2 + 32-entry score-table（全 kernel）** | **現況部署（唯一已實作）** | Run 28 D；HOIC 0.0001、avg 0.60。Userspace IF（Layer 2）規劃中未實作 |
+| **分位桶 N=2 + 32-entry score-table（全 kernel）** | **現況部署（唯一已實作）** | Run 28 D；HOIC 0.0001、avg 0.60。Userspace IF（Layer 2）已擱置（泛化邊界外）|
 | 線性加權評分 `S = Σ w_j × q_j`（Kernel 端）| 待蒸餾驗證 | AUC 損失需 < 0.02，才值得移至 Kernel |
 | 單層決策樹（深度 ≤ 4）| 待驗證 | 可表達非線性邊界，比線性更接近 IF 行為 |
-| 完整 IsolationForest | **Layer 2 規劃中（離線在 `service/model/`，runtime 未接通）**| ~20,000 節點，不可入 Kernel；屬 Userspace Layer 2 |
+| 完整 IsolationForest | **Layer 2 已擱置（離線在 `service/model/`，runtime 未接通）**| ~20,000 節點，不可入 Kernel；屬 Userspace Layer 2 |
 
 #### 線性加權的使用邊界
 

@@ -1240,3 +1240,53 @@ Userspace `model_loader.rs` 需依 `version` 欄位分支載入，向下相容 v
 2. **整數 overflow**：`FEATURE_SCORES` 各值 × SCALE=10000；5 個特徵加總最大值需 fit i32 → 需確認 score range
 3. **Adaptive update 延遲**：`write_boundary_version` 從寫 5 個 u64 增加到寫 35 個，原子性窗口變大，需評估影響
 4. **v1 → v2 遷移**：`model_loader.rs` 需支援 version=1 fallback（`SCORE_TABLE` 仍可用），不能直接替換
+
+---
+
+### Run 31 — 結果（2026-05-31）：PAB-Score **不採用**
+
+**狀態：** 已執行（`run31_additive_score.py`，CIC-only，N=8）
+
+#### 結論
+
+Additive decomposition **無法**近似 N=8 full table，且 **additive avg AUC (0.7128) 連現有 N=2 contract (0.8943) 都不如**，**不進行 eBPF 實作**，維持 N=2 32-entry contract。
+
+> 三方對照皆在**同一 eval 切片、同一 BENIGN 分位桶邊界**上計算（N=2 為 5 特徵全分位桶，非混合 abs/ratio）。N=2 avg AUC=0.8943 與 Run 30 `D_n2_baseline` 完全一致，確認比對基線即部署 contract 的全分位桶策略。
+
+| 指標 | 數值 | 門檻 | 判定 |
+|------|:---:|:---:|:---:|
+| Additive R²（vs full table）| **0.6567** | — | 交叉項佔 ~34% 變異 |
+| max Δ AUC（full − additive）| **+0.3878**（SYN）| < 0.02 | ❌ FAIL |
+| avg Δ AUC（full − additive）| **+0.1997** | < 0.02 | ❌ FAIL |
+| avg FPR full → additive | 0.0919 → **0.3011** | ≤ 1.1× | ❌ FAIL |
+| additive 勝過 N=2 contract | 0.7128 < **0.8943** | additive > N=2 | ❌ FAIL |
+| 整數化 i32 fit（SCALE=10000）| range [5152, 7588] | fit i32 | ✅ OK（唯一通過項）|
+
+#### Per-attack AUC（N=8 full / additive PAB / N=2 全分位桶 contract）
+
+| 攻擊 | AUC_full | AUC_add | **AUC_n2** | Δ(full−add) | FPR_full | FPR_add | FPR_n2 |
+|------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| DRDOS_DNS | 0.9942 | 0.8257 | **0.9963** | +0.169 | 0.006 | 0.173 | 0.007 |
+| DRDOS_LDAP | 0.9929 | 0.8254 | **0.9950** | +0.168 | 0.009 | 0.177 | 0.010 |
+| DRDOS_MSSQL | 0.9895 | 0.8415 | **0.9965** | +0.148 | 0.014 | 0.162 | 0.007 |
+| DRDOS_NETBIOS | 0.9931 | 0.8479 | **0.9971** | +0.145 | 0.009 | 0.154 | 0.005 |
+| DRDOS_NTP | 0.9905 | 0.8281 | 0.9814 | +0.162 | 0.012 | 0.171 | 0.005 |
+| DRDOS_SNMP | 0.9910 | 0.8059 | **0.9924** | +0.185 | 0.013 | 0.198 | 0.015 |
+| DRDOS_SSDP | 0.9900 | 0.8131 | **0.9946** | +0.177 | 0.014 | 0.191 | 0.011 |
+| DRDOS_UDP | 0.9858 | 0.8342 | **0.9954** | +0.152 | 0.018 | 0.170 | 0.009 |
+| **SYN** | 0.5310 | 0.1432 | 0.3999 | **+0.388** | 0.462 | 0.888 | 0.638 |
+| TFTP | 0.9890 | 0.8467 | **0.9929** | +0.142 | 0.009 | 0.150 | 0.005 |
+| **UDP-LAG** | 0.5907 | 0.2295 | 0.4958 | **+0.361** | 0.446 | 0.879 | 0.601 |
+| **Avg** | **0.9125** | **0.7128** | **0.8943** | +0.1997 | 0.092 | 0.301 | — |
+
+#### 解讀
+
+- **DDoS-DNS/LDAP/MSSQL/NETBIOS/NTP/SNMP/SSDP/UDP/TFTP**：N=8 full AUC≈0.99，additive 掉到 ≈0.83（Δ≈0.15），FPR 從 ~1% 推到 ~17%——對防火牆已不可接受。**值得注意：N=2 contract 在這些「易分」攻擊上甚至小幅勝過 N=8 full**（如 MSSQL 0.9965 vs 0.9895），additive 把 N=8 的優勢完全抹除。
+- **SYN / UDP-LAG（Run 30 已標記的盲區）**：N=8 full 本就只有 AUC≈0.53–0.59；additive 進一步崩到 0.14–0.23（比亂猜還差）。這兩類攻擊**完全依賴特徵間交叉互動**，additive 結構上無法表達。
+- R²=0.66 表示 IF score 約三分之一變異來自交叉項；設計提案中「各樹對特徵均勻抽樣則 additive 可解釋主要變異」的假設在此資料**不成立**。
+
+#### 對 contract 的影響
+
+- N=8 PAB-Score 路線**關閉**。N=8 若要用，只能 32768-entry full table（eBPF bounded-loop 建 index + map 4MB 內可行，但 adaptive boundary 需維護 2×35 bounds，成本如設計提案所述）。
+- **維持 N=2 32-entry contract**（Run 28/30 結論不變）。`distill_export.py` 無需調整。
+- 若未來仍要降低 N=8 查表成本，方向應為「**保留交叉項的低秩近似**」（例如 factorization machine / 2-way interaction terms），而非純 additive。純線性方案 A（5 權重）預期更差，不再評估。

@@ -40,10 +40,11 @@
 ## `3_actuation/` — 執行層：DROP / 限流 / userspace 控制面
 
 > 對應：XDP_DROP、TC redirect + token bucket、BLOCK_LIST 動態管理、graceful shutdown、CLI。
+> 原 2026-02 userspace 品質審查計畫的追蹤項目已在 `TASKS.md` 完成或取代，為避免誤導已移除。
 
 | 檔案 | 狀態 | 內容 |
 |------|------|------|
-| `3_actuation/userspace_improvement_plan.md` | **活的（持續更新）** | userspace 品質追蹤（2026-02-21 起）：SYN cookie、TC attach、配置系統、CLI、metrics |
+| — | 待補 | 限流器 / token bucket 策略尚未獨立成文；目前仍散落於 `_crosscut/kernel_defense_architecture.md` 的「負反饋執行」段。 |
 
 ---
 
@@ -73,14 +74,14 @@
 
 | 檔案 | 為何歸檔 |
 |------|---------|
-| `archive/packetinfo_redesign_proposal.md` | 提案已由 `firewall-ebpf/src/parser.rs` 的 `PacketInfo` + `PacketContext` trait 實作取代 |
+| — | 原 PacketInfo 重構提案已由 `firewall-ebpf/src/parser.rs` 的 IPv4/IPv6 `PacketInfo` + `PacketContext` trait 實作取代，且內容停留在舊 IPv4 設計，已移除。 |
 
 ---
 
 ## 已知 doc 債
 
-- **Layer 2（Userspace 完整 IF）集成計畫尚未撰寫**。原 4 處死連結（CLAUDE.md ×1、`_crosscut/kernel_defense_architecture.md` ×3 指向不存在的 `docs/layer2_integration_plan.md`）已改為「待撰寫」純文字。實際補寫後再把敘述接回連結。
-- **執行層（`3_actuation/`）目前只有一份品質追蹤計畫**，限流器/token bucket 策略尚未獨立成文，仍散落於 `_crosscut/kernel_defense_architecture.md` 的「負反饋執行」段。
+- ~~**Layer 2（Userspace 完整 IF）集成計畫尚未撰寫**~~（2026-06-07 已補）：`docs/2_decision/layer2_integration_plan.md`（設計階段，未排程實作）。原 4 處引用（CLAUDE.md ×1、`_crosscut/kernel_defense_architecture.md` ×3）已接回此連結。
+- **執行層（`3_actuation/`）目前沒有活文件**。已完成的 2026-02 userspace 品質追蹤計畫已移除；限流器/token bucket 策略尚未獨立成文，仍散落於 `_crosscut/kernel_defense_architecture.md` 的「負反饋執行」段。
 
 ---
 
