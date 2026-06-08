@@ -157,6 +157,7 @@
 | `[x]` | 29 | HOIC 特徵替換（init_win_bit 修復 HOIC）| `run29_hoic_feature_search.py` | `init_win_bit` 單特徵 HOIC AUC=0.9995；BigFlow 無此欄位不受影響 |
 | `[x]` | **30** | N-sweep 多點分位桶（N=2/4/8，CIC-only）| `run30_n_sweep.py` | N=2 avg=0.8943 最優（N=4=0.8806、N=8=0.9125 但 32768-entry 不可行）；SYN/UDP-LAG 為盲區；維持 N=2 contract |
 | `[x]` | 31 | **N=8 + Per-feature Additive Bucket Score（PAB-Score）驗證**：OLS fit additive model，同一 eval 切片三方對照 N=8 full / additive / N=2 全分位桶 contract（2026-05-31 完成）| `run31_additive_score.py` | **不採用**：additive avg AUC=0.7128 **連 N=2 contract（0.8943）都不如**；R²=0.66、max Δ=+0.39（SYN）、FPR 0.09→0.30。交叉項顯著，保留 N=2 contract |
+| `[x]` | 37 | **Static vs Periodic vs Gated drift（E3，Figure 2）** | `run37_drift_eval.py` | Periodic 攻擊≥30% F1→0 崩潰；Static/Gated 全程 F1 0.88→0.90 穩健；nuance：無量綱特徵使 Static 本就抗良性漂移 |
 | `[x]` | 36 | **Attack contamination sweep（E5，gated vs naive）** | `run36_contamination_sweep.py` | naive ρ≥30% FNR=1.000 崩潰；gated 全程 AttackFreeze 鎖 FNR=0.182；忠於 boundary_updater 門檻 |
 | `[x]` | 35 | **Supervised LR/RF 上界（E1，in-scope FPR≤1%）** | `run35_supervised_baseline.py` | LR 0.948/F1 0.892、RF 0.934/0.900；無監督 bucket F1 0.902 追平上界；三盲區有 label 仍不變＝特徵極限 |
 | `[x]` | 34 | **Student score regression vs bucket（E2，in-scope FPR≤1%）** | `run34_score_regression.py` | regression 忠實複製 teacher（Spearman 0.99）→ 繼承 teacher 操作點不可用（F1@1%=0.11）；bucket 不複製（Spearman 0.55）卻 F1=0.90 → **推翻「分位桶保留排序」假設**，價值在與 teacher 絕對分數脫鉤 |
@@ -282,14 +283,23 @@
 
 | 狀態 | 對照組 | 邊界更新方式 |
 |------|--------|------------|
-| `[ ]` | Static Quantile Bucket | 訓練集計算一次，不更新 |
-| `[ ]` | Periodic Update Bucket | 每 T 秒以當前視窗重算 |
-| `[ ]` | **Gated Streaming Bucket** | 你的方法：S_ref / S_live dual-sketch + GateState |
+| `[x]` | Static Quantile Bucket | 訓練集計算一次，不更新 |
+| `[x]` | Periodic Update Bucket | 每視窗以當前視窗重算（無 gate）|
+| `[x]` | **Gated Streaming Bucket** | 你的方法：S_ref / S_live dual-sketch + GateState |
 
-**Drift 場景（人工製造）：**
-- 正常流量 packet rate 放大 2×（模擬業務高峰）
-- 攻擊比例從 10% 增加到 50%（模擬攻擊持續）
-- 切成至少 4 個 time window，折線圖呈現 F1 / FNR 變化
+**已測（`run37_drift_eval.py`，5 視窗，攻擊 10%→50%，BENIGN pkt_len_mean 漸增；F1 / FNR）：**
+
+| win | atk% | Static F1/FNR | Periodic F1/FNR | Gated F1/FNR |
+|:---:|:---:|:---:|:---:|:---:|
+| 0 | 10% | 0.876 / 0.185 | 0.868 / 0.192 | 0.876 / 0.185 |
+| 1 | 20% | 0.887 / 0.189 | 0.880 / 0.198 | 0.887 / 0.189 |
+| 2 | 30% | 0.896 / 0.176 | **0.000 / 1.000** | 0.896 / 0.176 |
+| 3 | 40% | 0.894 / 0.184 | **0.000 / 1.000** | 0.894 / 0.184 |
+| 4 | 50% | 0.898 / 0.179 | **0.000 / 1.000** | 0.898 / 0.179 |
+
+**關鍵論點（指向數據）：** Periodic 在攻擊≥30% **F1→0.000 / FNR→1.000 崩潰**（污染邊界）；Static 與 Gated 全程穩健（F1 0.88→0.90）。**誠實 nuance**：Static 不退化是因無量綱比例特徵對良性 rate/size 漂移本就免疫——故 Gated 在此場景多半凍結（≈Static），其價值在**相對 Periodic 避免污染**而非相對 Static。詳見 `docs/results_and_discussion.md` §3c。
+
+**原 Drift 場景設定（已實作）：** 攻擊比例 10%→50%、BENIGN 流量漂移、5 個 time window。
 
 ---
 

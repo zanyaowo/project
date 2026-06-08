@@ -145,6 +145,27 @@
 
 ---
 
+## 3c. Static vs Periodic vs Gated under drift（E3，Figure 2 主圖）
+
+**數據來源：`experiments/run37_drift_eval.py` → `run37_drift_eval.json`**
+（5 視窗，攻擊比例 10%→50%，BENIGN pkt_len_mean 漸增；門檻 div=0.30/jump=2.0/EMA α=0.30）
+
+| win | 攻擊% | Static F1 / FNR | Periodic F1 / FNR | Gated F1 / FNR |
+|:---:|:---:|:---:|:---:|:---:|
+| 0 | 10% | 0.876 / 0.185 | 0.868 / 0.192 | 0.876 / 0.185 |
+| 1 | 20% | 0.887 / 0.189 | 0.880 / 0.198 | 0.887 / 0.189 |
+| 2 | 30% | 0.896 / 0.176 | **0.000 / 1.000** | 0.896 / 0.176 |
+| 3 | 40% | 0.894 / 0.184 | **0.000 / 1.000** | 0.894 / 0.184 |
+| 4 | 50% | 0.898 / 0.179 | **0.000 / 1.000** | 0.898 / 0.179 |
+
+**可寫：**
+- **Periodic（無 gate 的 streaming）在攻擊≥30% 完全崩潰**（F1 0.000、FNR 1.000）：每視窗用含攻擊的中位數重算邊界 → 邊界被污染 → 攻擊全漏。
+- **Static 與 Gated 全程穩健**（F1 0.876→0.898，FNR ~0.18）：Gated 的 gate 從 win1 起判定 AttackFreeze，從不採納被污染的邊界，緊貼 Static 的乾淨基線。
+- **誠實 nuance（不誇大）**：本場景 Static 沒退化，是因為部署的**無量綱比例特徵對良性 rate/size 漂移本就不敏感**（boundary 不會因業務高峰而失效）；因此 Gated 的「適應良性漂移」分支幾乎未被觸發，多半凍結 ≈ Static。Gated 的決定性優勢是**相對 Periodic 避免污染**（與 E5 一致），而非相對 Static 追漂移。
+- → **Figure 2 敘事**：streaming 自適應若無 gate，攻擊上升即崩（Periodic）；dual-sketch + gated freeze 在保有適應能力的同時，把偵測力鎖在 Static 等級的乾淨基線。
+
+---
+
 ## 4. Teacher 決策：為何 five-contract 連續 IF 是最終 teacher（不是 Abs20）
 
 | 比較軸 | Contract5 連續（採用） | Abs20 絕對特徵（不採用） |
