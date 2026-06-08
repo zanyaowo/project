@@ -8,8 +8,6 @@ mod scorer;
 mod syn_cookie;
 mod table;
 
-use core::mem::size_of;
-
 use crate::parser::{parse_packet, PacketInfo};
 use crate::table::{update_session, SessionUpdateParams};
 use aya_ebpf::bindings::{TC_ACT_OK, TC_ACT_SHOT};
@@ -60,19 +58,6 @@ unsafe fn tc_egress_impl(ctx: &TcContext) -> i32 {
     update_session(&params, &mut session_value);
 
     TC_ACT_OK as i32
-}
-
-#[inline(always)]
-unsafe fn ptr_at<T>(ctx: &XdpContext, offset: usize) -> Result<*const T, ()> {
-    let start = ctx.data();
-    let end = ctx.data_end();
-    let len = size_of::<T>();
-
-    if start + offset + len > end {
-        return Err(());
-    }
-
-    Ok((start + offset) as *const T)
 }
 
 fn try_xdp_firewall(ctx: XdpContext) -> Result<u32, ()> {
