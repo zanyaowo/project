@@ -13,25 +13,25 @@ use firewall_common::session::SessionValue;
 // QUANTILE_BOUNDS holds BOUNDARY_BANK_COUNT banks laid out contiguously:
 // bank `b` occupies entries [b*FEATURE_COUNT .. (b+1)*FEATURE_COUNT).
 #[map]
-static mut QUANTILE_BOUNDS: Array<QuantileBound> = Array::with_max_entries(QUANTILE_BOUND_SIZE, 0);
+static QUANTILE_BOUNDS: Array<QuantileBound> = Array::with_max_entries(QUANTILE_BOUND_SIZE, 0);
 
 #[map]
-static mut SCORE_TABLE: Array<i32> = Array::with_max_entries(SCORE_TABLE_SIZE, 0);
+static SCORE_TABLE: Array<i32> = Array::with_max_entries(SCORE_TABLE_SIZE, 0);
 
 #[map]
-static mut MODEL_CONFIG: Array<ModelConfig> = Array::with_max_entries(MODEL_CONFIG_SIZE, 0);
+static MODEL_CONFIG: Array<ModelConfig> = Array::with_max_entries(MODEL_CONFIG_SIZE, 0);
 
 // Versioned metadata for double-buffered boundary banks.
 #[map]
-static mut BOUNDARY_META: Array<BoundaryMeta> = Array::with_max_entries(BOUNDARY_META_SIZE, 0);
+static BOUNDARY_META: Array<BoundaryMeta> = Array::with_max_entries(BOUNDARY_META_SIZE, 0);
 
 // Raw feature samples for the userspace calibration layer.
 #[map]
-static mut STATS_RING_BUF: RingBuf = RingBuf::with_byte_size(STATS_RING_BUF_SIZE, 0);
+static STATS_RING_BUF: RingBuf = RingBuf::with_byte_size(STATS_RING_BUF_SIZE, 0);
 
 // Per-CPU sampling counter (avoids flooding the ring buffer).
 #[map]
-static mut STATS_SAMPLE_CTR: PerCpuArray<u64> = PerCpuArray::with_max_entries(1, 0);
+static STATS_SAMPLE_CTR: PerCpuArray<u64> = PerCpuArray::with_max_entries(1, 0);
 
 #[inline(always)]
 fn sat_u32(v: u64) -> u32 {
@@ -46,7 +46,7 @@ fn sat_u32(v: u64) -> u32 {
 /// Falls back to bank 0 when meta is missing or the version has expired (TTL).
 #[inline(always)]
 fn active_bank_base() -> u32 {
-    let meta = unsafe { BOUNDARY_META.get(0) };
+    let meta = BOUNDARY_META.get(0);
     match meta {
         Some(m) => {
             let now = unsafe { bpf_ktime_get_ns() };
@@ -66,7 +66,7 @@ fn active_bank_base() -> u32 {
 // the scalar-return pattern used for `update_session` / `tc_egress_impl`.
 #[inline(never)]
 pub fn score_session(session_value: &SessionValue, proto: u8, out: &mut ScoreResult) -> bool {
-    let config = match unsafe { MODEL_CONFIG.get(0) } {
+    let config = match MODEL_CONFIG.get(0) {
         Some(c) => c,
         None => return false,
     };
@@ -115,7 +115,7 @@ pub fn score_session(session_value: &SessionValue, proto: u8, out: &mut ScoreRes
     let mut index: u32 = 0x00;
 
     for feature_index in 0..FEATURE_COUNT {
-        let bound = match unsafe { QUANTILE_BOUNDS.get(bank_base + feature_index) } {
+        let bound = match QUANTILE_BOUNDS.get(bank_base + feature_index) {
             Some(b) => b,
             None => return false,
         };
@@ -146,7 +146,7 @@ pub fn score_session(session_value: &SessionValue, proto: u8, out: &mut ScoreRes
         index |= bit << feature_index;
     }
 
-    let score = match unsafe { SCORE_TABLE.get(index) } {
+    let score = match SCORE_TABLE.get(index) {
         Some(s) => s,
         None => return false,
     };

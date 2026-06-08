@@ -12,11 +12,11 @@ const TCP_HDR_LEN: usize = mem::size_of::<TcpHdr>();
 
 
 #[map]
-static mut SECRET_KEY: Array<u32> = Array::with_max_entries(1, 0);
+static SECRET_KEY: Array<u32> = Array::with_max_entries(1, 0);
 
 #[inline(always)]
 pub fn calculate_cookie(src: u32, dst: u32, sport: u16, dport: u16, proto: u8) -> u32 {
-    let secret = unsafe { SECRET_KEY.get(0).unwrap_or(&0) };
+    let secret = SECRET_KEY.get(0).unwrap_or(&0);
     // Jenkins-like Hash / MurmurHash3 Mixer
     let mut h = *secret;
     h = h.wrapping_add(src);

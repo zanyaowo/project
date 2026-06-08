@@ -5,10 +5,10 @@ use firewall_common::constants::EVENT_RING_BUF_SIZE;
 use firewall_common::session::{SessionEvent, SessionKey};
 
 #[map]
-static mut EVENTS_POOL: RingBuf = RingBuf::with_byte_size(EVENT_RING_BUF_SIZE, 0);
+static EVENTS_POOL: RingBuf = RingBuf::with_byte_size(EVENT_RING_BUF_SIZE, 0);
 
 #[map]
-static mut DROP_EVENTS: PerCpuArray<u64> = PerCpuArray::with_max_entries(1, 0);
+static DROP_EVENTS: PerCpuArray<u64> = PerCpuArray::with_max_entries(1, 0);
 
 // Updated signature to take raw values instead of Ipv4Hdr struct
 // This avoids the need to reconstruct the struct in main.rs.
@@ -30,7 +30,7 @@ pub fn submit_event(session_update_params: &SessionUpdateParams, score: i32) {
             (*event).score = score;
             events.submit(0);
         } else {
-            if let Some(mut counter) = DROP_EVENTS.get_ptr_mut(0) {
+            if let Some(counter) = DROP_EVENTS.get_ptr_mut(0) {
                 *counter += 1;
             }
         }
