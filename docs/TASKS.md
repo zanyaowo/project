@@ -157,6 +157,7 @@
 | `[x]` | 29 | HOIC 特徵替換（init_win_bit 修復 HOIC）| `run29_hoic_feature_search.py` | `init_win_bit` 單特徵 HOIC AUC=0.9995；BigFlow 無此欄位不受影響 |
 | `[x]` | **30** | N-sweep 多點分位桶（N=2/4/8，CIC-only）| `run30_n_sweep.py` | N=2 avg=0.8943 最優（N=4=0.8806、N=8=0.9125 但 32768-entry 不可行）；SYN/UDP-LAG 為盲區；維持 N=2 contract |
 | `[x]` | 31 | **N=8 + Per-feature Additive Bucket Score（PAB-Score）驗證**：OLS fit additive model，同一 eval 切片三方對照 N=8 full / additive / N=2 全分位桶 contract（2026-05-31 完成）| `run31_additive_score.py` | **不採用**：additive avg AUC=0.7128 **連 N=2 contract（0.8943）都不如**；R²=0.66、max Δ=+0.39（SYN）、FPR 0.09→0.30。交叉項顯著，保留 N=2 contract |
+| `[x]` | 35 | **Supervised LR/RF 上界（E1，in-scope FPR≤1%）** | `run35_supervised_baseline.py` | LR 0.948/F1 0.892、RF 0.934/0.900；無監督 bucket F1 0.902 追平上界；三盲區有 label 仍不變＝特徵極限 |
 | `[x]` | 34 | **Student score regression vs bucket（E2，in-scope FPR≤1%）** | `run34_score_regression.py` | regression 忠實複製 teacher（Spearman 0.99）→ 繼承 teacher 操作點不可用（F1@1%=0.11）；bucket 不複製（Spearman 0.55）卻 F1=0.90 → **推翻「分位桶保留排序」假設**，價值在與 teacher 絕對分數脫鉤 |
 | `[x]` | 33 | **IF + static quantile bucket K 敏感度（E1/E6，in-scope FPR≤1%）** | `run33_static_bucket.py` | K=2 F1=0.900 全操作點穩健（32-entry）；**K=4 F1=0.000 操作點崩潰**（1024-entry，FPR≤5% R=0）；K=8 恢復但 32768-entry 不可行 → 坐實選 K=2 |
 | `[-]` | 32 | Layer 2 完整 IF 整合實驗：userspace runtime IF 與 kernel fast-path 分流策略 | `run32_dimensionless_vs_full.py` | **M1 完成（2026-06-07，CIC-2019）**：可重建 contract-5 連續版 AUC=0.845（FPR 0.066）≈ Full25 的 0.898，純無量綱 3 比例崩（0.659/FPR 0.485）。關鍵：Layer 2 主增益在「二值化→連續 IF」(0.60→0.85)、非「可重建→25 維」；特徵覆蓋度非阻塞點。依 CIC-2019 only，M2+ 暫不啟動 |
@@ -227,7 +228,7 @@
 | `[x]` | IF + static quantile bucket | **已測（`run33_static_bucket.py`）**：N=4(1024) F1@1%=0.000（FPR≤5% 崩潰，僅 FPR≥10% 恢復）；N=2(32) F1=0.900 全操作點穩健；N=8(32768) 恢復但不可行 |
 | `[ ]` | Student score regression | Student 直接回歸 IF anomaly score（MSE loss）|
 | `[-]` | **Student quantile bucket KD** | 你的方法；目前以二值特徵 IF 直接產 32-entry 表（非正式 KD），正式 KL/CE 蒸餾待實作（§8.B-2）|
-| `[ ]` | Supervised baseline（選）| LR / RF，需 attack label，作為上限參考 |
+| `[x]` | Supervised baseline | **已測（`run35_supervised_baseline.py`）**：LR AUC 0.948/F1@1% 0.892、RF 0.934/0.900；**部署無監督 bucket F1@1% 0.902 追平監督上界**；三盲區（Syn/UDP-lag/WebDDoS）有 label 仍不變＝特徵極限 |
 
 **評估指標：** Precision、Recall、F1、ROC-AUC、PR-AUC、FPR、FNR
 **Dataset：** CIC-DDoS2019 only（CLAUDE.md 硬邊界；不以 BigFlow 跨環境作結論）
