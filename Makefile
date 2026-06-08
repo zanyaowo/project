@@ -1,7 +1,7 @@
 IFACE ?= wlp3s0
 CARGO := cargo
 
-.PHONY: help clean build-ebpf build-ebpf-debug test run-firewall run-firewall-debug run-test clean-tc bpftool-maps verify-load verify-packets verify-boundary verify-blocklist
+.PHONY: help clean build-ebpf build-ebpf-debug test run-firewall run-firewall-debug run-test clean-tc bpftool-maps verify-load verify-packets verify-boundary verify-blocklist bench-setup bench-throughput bench-maplat bench-mitigation bench
 
 help:  ## Show this help message
 	@echo "Available commands:"
@@ -75,3 +75,21 @@ verify-boundary: ## Flood -> AttackFreeze / BOUNDARY_META.version freeze [IFACE=
 
 verify-blocklist: ## Write BLOCK_LIST key -> confirm DROP [IFACE=wlp3s0 IP=1.2.3.4]
 	sudo IFACE=$(IFACE) $(VALIDATE) blocklist $(IFACE) $(IP)
+
+# --- Benchmark harness (Table 2 / E4; on-hardware, see scripts/bench/README.md) ---
+BENCH := scripts/bench
+
+bench-setup: ## Probe caps + set up testbed [IFACE=wlp3s0 MODE=loopback|veth|dual]
+	sudo IFACE=$(IFACE) MODE=$(or $(MODE),loopback) $(BENCH)/setup_testbed.sh setup
+
+bench-throughput: ## pps + CPU% per mitigation group [GROUP=ebpf-bucket|no-mitigation|static-blocklist|userspace-IF|all]
+	sudo IFACE=$(IFACE) $(BENCH)/throughput.sh $(or $(GROUP),all)
+
+bench-maplat: ## eBPF prog/map lookup latency (ns) [IFACE=wlp3s0]
+	sudo IFACE=$(IFACE) $(BENCH)/map_latency.sh $(IFACE)
+
+bench-mitigation: ## detect->DROP end-to-end latency (µs) [IFACE=wlp3s0 REPS=10]
+	sudo IFACE=$(IFACE) $(BENCH)/mitigation_latency.sh $(IFACE)
+
+bench: bench-throughput bench-maplat bench-mitigation ## Run full bench suite (firewall must be running)
+	@echo "Results -> bench_results/table2.md"

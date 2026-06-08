@@ -176,12 +176,12 @@
 
 | 狀態 | 嚴重 | 任務                                | 腳本 / 指令 | 驗收標準（DoD） | 依賴 |
 |------|------|-----------------------------------|------------|----------------|------|
-| `[ ]` | 🔴 | 建立 benchmark 測試平台（受測機 + 流量產生器）    | `scripts/bench/setup_testbed.sh`；`make bench-setup IFACE=<iface>` | 文件化拓樸（loopback / veth pair / 雙機）；`hping3` 或 `pktgen` 可發 ≥1 Mpps；可重現 | on-hardware（root + NIC） |
-| `[ ]` | 🔴 | Packet throughput（pps）4 對照組       | `scripts/bench/throughput.sh`（no-mitigation / static-blocklist / userspace-IF / eBPF-bucket）| 產出 4 組 max sustained pps + drop 曲線；eBPF-bucket ≥ userspace-IF | 8.A-1 |
-| `[ ]` | 🟡 | CPU usage（%）各對照組                  | 同上 harness + `mpstat`/`pidstat` | 同負載下 eBPF enforcement CPU% 表；含 softirq 佔比 | 8.A-1 |
-| `[-]` | 🟡 | Map lookup latency（ns）            | kernel 內 `bpf_ktime_get_ns()` 包夾 scorer 查表段 → 直方圖 map；或 `bpftool prog profile` | SCORE_TABLE/QUANTILE_BOUNDS 單次查表 p50/p99（ns）。**userspace proxy 已測：33.6 µs/flow，比 IF 推論快 177×（`results_benchmark.py`）**；kernel ns 待 on-hardware | on-hardware |
+| `[-]` | 🔴 | 建立 benchmark 測試平台（受測機 + 流量產生器）    | **腳本就緒** `scripts/bench/setup_testbed.sh`；`make bench-setup IFACE=<iface> MODE=loopback\|veth\|dual` | 文件化拓樸（loopback / veth pair / 雙機）；`hping3` 或 `pktgen` 可發 ≥1 Mpps；可重現。**待裝 bpftool/hping3 + on-hardware 執行** | on-hardware（root + NIC） |
+| `[-]` | 🔴 | Packet throughput（pps）4 對照組       | **腳本就緒** `scripts/bench/throughput.sh`（no-mitigation/static-blocklist/userspace-IF/eBPF-bucket）；`make bench-throughput GROUP=<g>`。userspace-IF 已離線算出 ~168 flow/s | 產出 4 組 max sustained pps + drop 曲線；eBPF-bucket ≥ userspace-IF | 8.A-1 |
+| `[-]` | 🟡 | CPU usage（%）各對照組                  | **腳本就緒** throughput.sh 內含 `mpstat` 取樣 | 同負載下 eBPF enforcement CPU% 表 | 8.A-1 |
+| `[-]` | 🟡 | Map lookup latency（ns）            | **腳本就緒** `scripts/bench/map_latency.sh`（`bpftool prog profile` 或 `bpf_stats_enabled` run_time_ns/run_cnt）；`make bench-maplat` | SCORE_TABLE/QUANTILE_BOUNDS 單次查表 p50/p99（ns）。**userspace proxy 已測：33.6 µs/flow，比 IF 推論快 177×**；kernel ns 待 on-hardware | on-hardware |
 | `[ ]` | 🟡 | Map update latency（µs）            | `boundary_updater.rs` 寫 map 前後 `Instant::now()` 包夾，logger 輸出 | `write_boundary_version` p50/p99（µs）| — |
-| `[ ]` | 🟡 | Mitigation latency（µs，偵測→DROP e2e） | `scripts/bench/mitigation_latency.sh`（時間戳：攻擊封包進場 ↔ 首個 XDP_DROP）| 端到端延遲分布；含 SYN-cookie 路徑 | 8.A-1 |
+| `[-]` | 🟡 | Mitigation latency（µs，偵測→DROP e2e） | **腳本就緒** `scripts/bench/mitigation_latency.sh`（時間戳：攻擊封包進場 ↔ 首個 XDP_DROP）；`make bench-mitigation` | 端到端延遲分布；含 SYN-cookie 路徑 | 8.A-1 |
 | `[ ]` | 🟡 | Legitimate drop ratio（%）          | benign+attack 混流回放，比對 ground-truth | FPR-in-the-wild（誤丟正常封包比例）| 8.A-1 |
 
 ### 8.B 偵測對照矩陣（填 E1/E2/E3/E5/E6 — Table 1 + Figure 2）
