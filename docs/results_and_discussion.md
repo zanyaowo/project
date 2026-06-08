@@ -126,6 +126,25 @@
 
 ---
 
+## 3b. Gated update 抗攻擊污染（E5，Figure 2 素材）
+
+**數據來源：`experiments/run36_contamination_sweep.py` → `run36_contamination_sweep.json`**
+（忠於部署 `boundary_updater.decide_gate`：divergence>0.30 且 high-risk 命中率 jump>2.0 → AttackFreeze；ref=部署 BENIGN 中位數邊界；baseline FNR=0.182）
+
+| 攻擊比例 ρ | divergence | high-risk× | gate 決策 | Naive FNR | Gated FNR |
+|:---:|:---:|:---:|:---:|:---:|:---:|
+| 10% | 0.349 | 34.6× | AttackFreeze | 0.190 | **0.182** |
+| 30% | 1.194 | 70× | AttackFreeze | **1.000** | **0.182** |
+| 50% | 2.224 | 89× | AttackFreeze | **1.000** | **0.182** |
+| 80% | 3.166 | 119× | AttackFreeze | **1.000** | **0.182** |
+
+**可寫：**
+- **Naive streaming 在 ρ≥30% 完全崩潰（FNR=1.000，漏掉全部攻擊）**：污染視窗的逐特徵中位數被攻擊流量拉進攻擊分布，邊界一旦移過去，攻擊就落回「正常」桶 → 全部漏報。即便 ρ=10%，naive FNR 也從 0.182 升到 0.190。
+- **Gated streaming 全程穩在 baseline FNR=0.182**：gate 在所有 ρ 都正確判定 AttackFreeze——divergence（0.35→3.17）遠超 0.30 門檻、high-risk 桶命中率（34→119×）遠超 2.0 跳升門檻 → 凍結 reference boundary，校準不被污染。
+- → **論點**：streaming 自適應若不設防，攻擊比例升高會把攻擊「洗白」成新常態（FNR→1）；dual-sketch + gated freeze 以「divergence × high-risk 跳升」雙條件辨識污染，把 FNR 鎖在乾淨基線。這是回饋層（boundary adaptive update）的核心安全價值。
+
+---
+
 ## 4. Teacher 決策：為何 five-contract 連續 IF 是最終 teacher（不是 Abs20）
 
 | 比較軸 | Contract5 連續（採用） | Abs20 絕對特徵（不採用） |

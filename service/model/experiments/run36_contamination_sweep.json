@@ -1,0 +1,36 @@
+{
+  "scope": "CIC-DDoS2019 only",
+  "baseline_fnr": 0.1815031503150315,
+  "div_threshold": 0.3,
+  "high_risk_jump": 2.0,
+  "sweep": {
+    "rho_10": {
+      "divergence": 0.34862931668448055,
+      "high_risk_ratio": 34.54544826446395,
+      "gate": "AttackFreeze",
+      "naive_fnr": 0.19023402340234025,
+      "gated_fnr": 0.1815031503150315
+    },
+    "rho_30": {
+      "divergence": 1.1937795342330757,
+      "high_risk_ratio": 70.23922167899319,
+      "gate": "AttackFreeze",
+      "naive_fnr": 1.0,
+      "gated_fnr": 0.1815031503150315
+    },
+    "rho_50": {
+      "divergence": 2.2238148627459333,
+      "high_risk_ratio": 88.79998385454839,
+      "gate": "AttackFreeze",
+      "naive_fnr": 1.0,
+      "gated_fnr": 0.1815031503150315
+    },
+    "rho_80": {
+      "divergence": 3.1658194367519763,
+      "high_risk_ratio": 119.42422071074776,
+      "gate": "AttackFreeze",
+      "naive_fnr": 1.0,
+      "gated_fnr": 0.1815031503150315
+    }
+  }
+}

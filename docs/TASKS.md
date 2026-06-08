@@ -157,6 +157,7 @@
 | `[x]` | 29 | HOIC 特徵替換（init_win_bit 修復 HOIC）| `run29_hoic_feature_search.py` | `init_win_bit` 單特徵 HOIC AUC=0.9995；BigFlow 無此欄位不受影響 |
 | `[x]` | **30** | N-sweep 多點分位桶（N=2/4/8，CIC-only）| `run30_n_sweep.py` | N=2 avg=0.8943 最優（N=4=0.8806、N=8=0.9125 但 32768-entry 不可行）；SYN/UDP-LAG 為盲區；維持 N=2 contract |
 | `[x]` | 31 | **N=8 + Per-feature Additive Bucket Score（PAB-Score）驗證**：OLS fit additive model，同一 eval 切片三方對照 N=8 full / additive / N=2 全分位桶 contract（2026-05-31 完成）| `run31_additive_score.py` | **不採用**：additive avg AUC=0.7128 **連 N=2 contract（0.8943）都不如**；R²=0.66、max Δ=+0.39（SYN）、FPR 0.09→0.30。交叉項顯著，保留 N=2 contract |
+| `[x]` | 36 | **Attack contamination sweep（E5，gated vs naive）** | `run36_contamination_sweep.py` | naive ρ≥30% FNR=1.000 崩潰；gated 全程 AttackFreeze 鎖 FNR=0.182；忠於 boundary_updater 門檻 |
 | `[x]` | 35 | **Supervised LR/RF 上界（E1，in-scope FPR≤1%）** | `run35_supervised_baseline.py` | LR 0.948/F1 0.892、RF 0.934/0.900；無監督 bucket F1 0.902 追平上界；三盲區有 label 仍不變＝特徵極限 |
 | `[x]` | 34 | **Student score regression vs bucket（E2，in-scope FPR≤1%）** | `run34_score_regression.py` | regression 忠實複製 teacher（Spearman 0.99）→ 繼承 teacher 操作點不可用（F1@1%=0.11）；bucket 不複製（Spearman 0.55）卻 F1=0.90 → **推翻「分位桶保留排序」假設**，價值在與 teacher 絕對分數脫鉤 |
 | `[x]` | 33 | **IF + static quantile bucket K 敏感度（E1/E6，in-scope FPR≤1%）** | `run33_static_bucket.py` | K=2 F1=0.900 全操作點穩健（32-entry）；**K=4 F1=0.000 操作點崩潰**（1024-entry，FPR≤5% R=0）；K=8 恢復但 32768-entry 不可行 → 坐實選 K=2 |
@@ -334,14 +335,16 @@
 
 **交付物：** `Figure 2` 的一部分，或單獨小 table
 
-| 狀態 | 攻擊比例 ρ | Naive streaming FNR | Gated streaming FNR |
-|------|-----------|:-------------------:|:-------------------:|
-| `[ ]` | 10% | — | — |
-| `[ ]` | 30% | — | — |
-| `[ ]` | 50% | — | — |
-| `[ ]` | 80% | — | — |
+**已測（`run36_contamination_sweep.py`，CIC-DDoS2019 in-scope；忠於 `boundary_updater.decide_gate`，門檻 div=0.30/jump=2.0；baseline FNR=0.182）：**
 
-**關鍵論點：** Naive streaming 在 ρ 高時把攻擊流量校準為新常態（FNR 上升）；gated update 凍結 reference boundary，FNR 維持穩定。
+| 狀態 | 攻擊比例 ρ | divergence | high-risk× | gate | Naive FNR | Gated FNR |
+|------|-----------|:---:|:---:|:---:|:---:|:---:|
+| `[x]` | 10% | 0.349 | 34.6× | AttackFreeze | 0.190 | **0.182** |
+| `[x]` | 30% | 1.194 | 70× | AttackFreeze | **1.000** | **0.182** |
+| `[x]` | 50% | 2.224 | 89× | AttackFreeze | **1.000** | **0.182** |
+| `[x]` | 80% | 3.166 | 119× | AttackFreeze | **1.000** | **0.182** |
+
+**關鍵論點（指向數據）：** Naive streaming 在 ρ≥30% **FNR=1.000 完全崩潰**（污染視窗中位數移進攻擊分布，攻擊被校準為新常態）；gated update 因 divergence(0.35–3.17)≫0.30 且 high-risk 命中率(34–119×)≫2.0 觸發 AttackFreeze，凍結 reference boundary，**FNR 全程穩在 baseline 0.182**。詳見 `docs/results_and_discussion.md` §3b。
 
 ---
 
