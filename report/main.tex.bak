@@ -1,0 +1,481 @@
+% =============================================================
+%  國立高雄科技大學 資訊工程學系 — 專題報告
+%  編譯方式：Overleaf 右上角 Menu → Compiler 選 "XeLaTeX"
+%            （ctex 套件需要 XeLaTeX，不可用 pdfLaTeX）
+%  中文字型：使用 ctex 內建 fandol，Overleaf 已內建，無需上傳
+% =============================================================
+\documentclass[12pt, a4paper]{ctexart}
+
+% ---------- 版面 ----------
+\usepackage[top=2.5cm, bottom=2.5cm, left=3cm, right=3cm]{geometry}
+\usepackage{setspace}
+\onehalfspacing                       % 1.5 倍行距
+
+% ---------- 數學 ----------
+\usepackage{amsmath, amssymb, amsfonts}
+\usepackage{bm}
+
+% ---------- 圖表 ----------
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{caption}
+\usepackage{subcaption}
+\captionsetup{font=small, labelfont=bf}
+
+% ---------- 程式碼 ----------
+\usepackage{listings}
+\usepackage{xcolor}
+\definecolor{codegray}{rgb}{0.95,0.95,0.95}
+\definecolor{codekey}{rgb}{0.0,0.3,0.6}
+\definecolor{codecomment}{rgb}{0.3,0.5,0.3}
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codegray},
+  keywordstyle=\color{codekey}\bfseries,
+  commentstyle=\color{codecomment}\itshape,
+  numbers=left, numberstyle=\tiny\color{gray},
+  breaklines=true, frame=single, framesep=4pt,
+  showstringspaces=false, captionpos=b,
+}
+
+% ---------- 超連結（放最後載入）----------
+\usepackage[colorlinks=true, linkcolor=black, citecolor=blue, urlcolor=blue]{hyperref}
+
+% ---------- 自訂指令 ----------
+\newcommand{\code}[1]{\texttt{#1}}
+
+% =============================================================
+%  封面
+% =============================================================
+\begin{document}
+
+\begin{titlepage}
+\centering
+\vspace*{1cm}
+{\LARGE \textbf{國立高雄科技大學}\par}
+\vspace{0.3cm}
+{\Large \textbf{資訊工程學系}\par}
+\vspace{2.5cm}
+
+{\large 專題名稱\par}
+\vspace{0.5cm}
+{\Huge \textbf{基於 eBPF Fast Path 之}\par}
+\vspace{0.4cm}
+{\Huge \textbf{低延遲 DDoS 偵測與防護系統}\par}
+\vspace{2.5cm}
+
+{\large \textbf{專題隊員}\par}
+\vspace{0.5cm}
+
+\renewcommand{\arraystretch}{1.5}
+\begin{tabular}{|c|c|l|l|}
+\hline
+\textbf{姓名} & \textbf{學號} & \textbf{E-mail} & \textbf{負責項目說明} \\
+\hline
+黃欣怡 & C112151130 & C112151130@nkust.edu.tw & 成果展現、報告撰寫 \\
+\hline
+方柏翰 & C112151143 & C112151143@nkust.edu.tw & 模型製作、報告撰寫 \\
+\hline
+楊玉蠳 & C112151161 & C112151161@nkust.edu.tw & 模型驗證、報告撰寫 \\
+\hline
+\end{tabular}
+
+\vfill
+{\large 指導教授：\underline{\hspace{3cm}} 教授\par}
+\vspace{1cm}
+{\large 中華民國 115 年 06 月 26 日\par}
+\end{titlepage}
+
+\newpage
+\section*{摘要}
+分散式阻斷服務攻擊（Distributed Denial of Service, DDoS）會以大量封包或流量消耗服務資源，因此防禦系統必須在極低延遲下完成早期判斷。然而，完整機器學習模型難以直接部署於 Linux kernel datapath；eBPF 程式受到 verifier、無浮點運算、有限 stack 與 bounded loop 等限制，無法在封包 fast-path 中執行完整樹狀模型。本專題提出一套基於 eBPF 的低延遲 DDoS 偵測與 fast-path 防護管線，將可由 datapath 重建的 Contract5 特徵空間轉換為 5-bit all-binary 部署規格。Contract5 包含 protocol、pkt\_len\_mean、fwd\_max\_q、sym\_ratio 與 pkt\_cv\_sq 五個特徵；系統以 32-entry score table 在 kernel-side 完成常數時間查表推論。
+
+系統架構採 closed-loop control 分層：XDP 負責早期封包解析、黑名單檢查與 SYN flood 相關處理；TC 於 flow 統計較完整時執行 Contract5 特徵重建、分位桶索引與分數查表；Rust userspace 負責載入模型參數、寫入 BPF maps、記錄事件，並支援 dual-sketch gated boundary update。實驗範圍以 CIC-IDS-2019 為主，結果顯示部署的 5-bit 32-entry student 在 FPR < 1\% 的操作點達到 F1 = 0.901、Recall = 0.821，並對多種 UDP reflection / amplification DDoS 類型達近乎完整偵測。另一方面，本研究亦明確揭露 Syn、UDP-lag 與 WebDDoS 盲區；跨資料集結果則作為分佈轉移與限制分析，而非主要成功標準。整體而言，本專題的主要貢獻不在於追求最高離線 AUC，而在於建立 Python 離線模型、Rust userspace 控制面與 eBPF kernel fast-path 之間可驗證、可部署的低延遲防護管線。
+
+\newpage
+\tableofcontents
+\newpage
+
+% =============================================================
+\section{導論}
+\label{sec:intro}
+
+\subsection{計畫背景}
+隨著網路服務高度依賴即時可用性，分散式阻斷服務攻擊（Distributed Denial of Service, DDoS）仍是影響線上服務穩定性的主要威脅之一。以 Cloudflare 的網路觀測資料為例，其在 2025 年第一季阻擋 20.5 million 次 DDoS 攻擊，較前一年同期增加 358\%，其中 network-layer DDoS 達 16.8 million 次；同一份報告亦指出，約 89\% 的 Layer 3/4 DDoS 攻擊在 10 分鐘內結束~\cite{cloudflare2025q1ddos}。這些資料顯示，DDoS 防禦不只需要辨識攻擊流量，也需要在短時間內自動完成放行、監控、限流或丟棄等決策。若偵測邏輯只能在 Userspace 以高延遲方式執行，即使模型具有良好離線準確率，也可能無法在攻擊高峰期間即時保護服務。
+
+機器學習異常偵測方法能從正常流量分布中學習異常模式，對於規則難以完整列舉的流量型攻擊具有應用潛力。然而，本研究關注的核心問題並非單純追求最高的 ML 準確率，而是在於：如何將可部署的異常偵測邏輯轉換為可直接於 Linux Kernel Datapath 執行的輕量化防禦機制。eBPF 程式雖能在 XDP / TC 等 hook 點提供低延遲封包處理能力，但其 verifier 會檢查控制流程、register / stack 狀態與記憶體存取安全，並拒絕不符合安全條件的程式~\cite{linuxBpfVerifier}。因此，系統必須在追求高吞吐效能的同時，將模型推論轉換為 verifier 友善的整數運算與 BPF Map 查表。
+
+需先界定的是，本專題目前以 CIC-IDS-2019 作為主要實驗與部署評估範圍。BigFlow、IDS2018 HOIC 與 LOIC-HTTP 等結果則作為分佈轉移（Distribution Shift）與模型限制之輔助分析，而非主要成功標準。系統現況唯一 runtime 推論層為 eBPF fast-path；完整 Isolation Forest 僅作為離線 teacher / reference，尚未接入 runtime。
+
+\subsection{研究動機}
+基於上述背景，本專題的研究動機可歸納為以下三項：
+
+\begin{enumerate}
+  \item \textbf{Userspace ML 推論與 kernel fast-path 需求之落差。} 傳統 NIDS 或 ML-based DDoS 偵測多在 Userspace 完成特徵組裝與模型推論，雖可使用完整資料結構、浮點運算與複雜模型，但在高封包率攻擊下，跨越 kernel/userspace 邊界與完整模型推論成本可能成為即時防禦瓶頸。相較之下，eBPF 可於 XDP / TC hook 點進行早期封包處理，但其 verifier 對控制流程、記憶體存取與 stack 使用有嚴格要求。因此，本專題希望將離線異常偵測邏輯壓縮為 eBPF 可接受的整數比較與常數時間查表。
+
+  \item \textbf{可由 datapath 重建的輕量統計特徵需求。} 若部署模型依賴高維 flow 特徵或需要完整封包歷史，則難以在 kernel fast-path 中重現。本專題因此聚焦於不檢查 payload、可由 L3/L4 封包與 session state 累積的統計特徵，例如協定、平均封包長度、前向最大封包比例、方向對稱性與封包長度變異係數。這些特徵必須能以整數運算或交叉乘法表示，才能符合 eBPF 無浮點與低延遲的限制。
+
+  \item \textbf{自適應邊界更新中的攻擊污染風險。} 在長時間部署情境中，流量分布可能因正常業務型態改變而產生漂移，因此防禦邊界需要具備校準能力。然而，若 streaming update 不區分 benign drift 與 attack contamination，攻擊流量可能被納入 reference distribution，使系統逐漸將攻擊校準為正常。本專題因此將 adaptive boundary calibration 放在 Userspace feedback layer，透過 dual-sketch gated update 與 AttackFreeze 狀態隔離攻擊污染，而非在封包 fast-path 中進行完整模型重訓。
+\end{enumerate}
+
+\subsection{探討問題}
+基於上述動機，本研究針對 eBPF-based DDoS fast-path 部署中的四項實務問題進行評估與求解：
+
+\begin{enumerate}
+  \item \textbf{離線異常偵測邏輯與 eBPF 相容性。} 如何將離線 Isolation Forest 所代表的異常偵測邏輯與 Contract5 特徵空間，轉換為僅需整數比較與查表即可完成推論的 5-bit all-binary 分位桶策略，而不在 kernel fast-path 中執行完整樹狀模型。
+
+  \item \textbf{特徵整數化與比例比較。} 在 eBPF 不適合浮點運算與高成本除法的前提下，如何運用可由 session state 累積的統計量，並以整數比較與交叉乘法取代比例特徵中的除法與浮點比較。
+
+  \item \textbf{Datapath 分工與效能隔離。} 如何協同 XDP 與 TC：由 XDP 負責早期封包解析、黑名單檢查與 SYN flood 相關處理，由 TC 在 flow 統計較完整時執行分位桶推論與評分，避免將高成本邏輯放入最早期封包路徑。
+
+  \item \textbf{適應性邊界校準與攻擊污染隔離。} 如何於 Userspace 透過 dual-sketch gated update 支援分位桶邊界校準，同時區分 benign drift 與 attack contamination，避免 streaming update 將攻擊流量校準為正常；並透過 versioned double-buffer BPF Map 確保熱更新過程中 datapath 參數一致性。
+\end{enumerate}
+
+\subsection{本專題之工程貢獻}
+本專題的貢獻定位在系統部署與實驗分析，而非提出新的 DDoS 分類模型。基於此定位，本專題之工程貢獻與實驗觀察如下：
+
+\begin{enumerate}
+  \item \textbf{建立 eBPF 可部署的模型部署規格。} 本專題將離線流量特徵收斂為五個可由 kernel session state 重建的 Contract5 特徵，並定義 feature order、bit order、length unit、score table 與 quantile bounds 等格式，使 Python 離線流程、Rust userspace loader 與 eBPF scorer 能依相同規格運作。此貢獻重點不在於提出全新特徵，而在於將 ML 特徵空間轉換為 datapath 可重建、可整數化且可驗證的部署格式。
+
+  \item \textbf{將異常偵測邏輯轉換為 5-bit、32-entry 的 fast-path 查表決策。} 完整 Isolation Forest 不適合直接部署於 eBPF，因此本專題以 $N=2$ 分位桶將五個特徵轉換為 5-bit index，並以 32-entry score table 取代樹狀巡訪。在 CIC-DDoS2019 的 FPR $\leq 1\%$ 操作點上，部署 student 達 F1 = 0.901、Recall = 0.821。N-sweep 實驗亦顯示，$N=4$ 在低 FPR 操作點崩潰，而 $N=8$ 需 32768-entry table；因此 $N=2$ 是目前操作點穩健性與 eBPF 可行性之間的合理折衷。
+
+  \item \textbf{完成 Python--Rust--eBPF closed-loop 防護管線。} 本專題整合 Python 離線訓練與模型匯出、Rust userspace model loader / logger / BoundaryUpdater，以及 eBPF XDP / TC datapath。XDP 負責早期封包解析、黑名單檢查與 SYN flood 相關處理；TC 負責 Contract5 特徵重建與 score table 查表；Userspace 則負責模型參數下發、事件記錄與邊界校準。
+
+  \item \textbf{設計並實作防攻擊污染的邊界更新機制。} 本專題將 dual-sketch gated update 整合至 userspace feedback layer，以區分正常流量漂移與攻擊污染。實驗顯示，naive streaming update 在攻擊比例 $\rho \geq 30\%$ 時 FNR 上升至 1.000，而 gated update 可透過 AttackFreeze 將 FNR 維持於 baseline 0.182。此結果說明，自適應邊界若缺乏污染隔離，可能反而削弱 DDoS 防禦效果。
+
+  \item \textbf{明確界定部署成果與限制。} 本專題區分 Contract5 連續 IF、Abs20 baseline 與部署 binarized student 三種 model class，並明列 Syn、UDP-lag、WebDDoS 與跨資料集 HOIC / BigFlow 等範圍外或盲區案例。此做法避免將離線模型分數誤作 runtime 部署證據，也使專題成果定位於可驗證的 kernel fast-path 實作，而非未受限制的泛化能力宣稱。
+\end{enumerate}
+
+\subsection{與既有技術能力之比較分析}
+本專題位於兩類既有技術的交界：一方面，傳統 ML-based NIDS 研究涵蓋多種網路攻擊偵測任務，DDoS 偵測是其中之一；此類研究多聚焦於資料集、特徵選取與分類或異常偵測準確率。另一方面，eBPF / XDP 相關工作則強調在 kernel datapath 中進行低延遲封包處理。前者通常未處理完整模型於 eBPF verifier 限制下的部署問題，後者則不一定提供可由離線 ML pipeline 對齊的模型部署規格。因此，本專題的比較重點不是單純追求最高離線準確率，而是模型特徵、推論形式與 kernel fast-path 可行性之間的取捨。
+
+\subsubsection{文獻回顧}
+\begin{itemize}
+  \item \textbf{資料集與 ML-based NIDS。} 大規模 NIDS 資料集與特徵工程研究提供了模型訓練與評估基礎。例如 BigFlow-NIDS 建構了包含 55{,}835{,}210 條流量紀錄的大型樣本庫~\cite{uddin2026bigflow}，而特徵選取研究亦整理了 NIDS 中常見的 filter、wrapper 與 embedded 方法~\cite{verma2022feature}。本專題承接此類工作對 flow-level 特徵的重視，但將評估範圍收斂於 CIC-IDS-2019，BigFlow 僅作為分佈轉移與限制分析之輔助資料來源。
+
+  \item \textbf{特徵標準化與跨環境限制。} 既有研究指出，網路安全資料集之間存在特徵定義、尺度與資料收集環境不一致等問題，因此特徵標準化與跨資料集比較需謹慎處理~\cite{moyano2023feature}。本專題實驗亦觀察到，若部署模型高度依賴絕對流量規模，跨資料來源評估時容易受到環境差異影響。因此，本系統將主成果限定於 CIC-IDS-2019 in-scope 評估，並將跨資料集結果視為限制分析，而非泛化能力宣稱。
+
+  \item \textbf{eBPF / XDP datapath 限制。} eBPF 可於 XDP / TC 等 hook 點提供低延遲封包處理能力，但其 verifier 會檢查控制流程、register / stack 狀態與記憶體存取安全~\cite{linuxBpfVerifier}。此外，相關研究也指出 eBPF 網路程式在 JIT、SIMD、記憶體操作與 helper 使用上存在不同於原生核心模組的效能限制~\cite{shahinfar2025demystifying}。因此，完整樹狀模型或高維浮點特徵不適合直接置入 kernel fast-path，必須轉換為小型、整數化、可查表的部署形式。
+\end{itemize}
+
+\subsubsection{比較分析}
+\paragraph{核心對比 A：準確率導向模型與部署導向模型。}
+傳統 ML-based NIDS 常以離線分類準確率、AUC 或特徵重要性作為主要評估目標；然而，在 eBPF DDoS fast-path 場景中，模型是否能被 verifier 接受、是否能以 bounded integer operations 執行、以及是否能在低 FPR 操作點下穩定決策，同樣是設計核心。因此，本專題不以高維模型的最佳離線 AUC 作為唯一標準，而是將 deployability 納入模型設計本身。
+
+\paragraph{核心對比 B：部署規格與特徵表示。}
+相較於僅在離線 pipeline 中選出高分特徵，本系統要求每一個特徵皆可由 eBPF session state 重建，並可轉換為整數比較或分位桶邊界。Contract5 包含 \code{protocol}、\code{pkt\_len\_mean}、\code{fwd\_max\_q}、\code{sym\_ratio} 與 \code{pkt\_cv\_sq} 五個特徵，如表~\ref{tab:features} 所示。此處的「部署規格」重點是 Python--Rust--eBPF 對齊與 kernel 可執行性，不應解讀為已完成跨資料集泛化。
+
+\begin{table}[H]
+  \centering
+  \caption{Contract5 部署規格特徵與 eBPF 表示方式}
+  \label{tab:features}
+  \renewcommand{\arraystretch}{1.3}
+  \begin{tabularx}{\textwidth}{l l X}
+    \toprule
+    \textbf{特徵} & \textbf{公式 / 定義} & \textbf{eBPF 表示方式與用途} \\
+    \midrule
+    通訊協定 (\code{protocol})        & L4 protocol & 由封包 header 解析後二值化，用於區分 TCP / UDP 等基礎協定差異 \\
+    平均封包長度 (\code{pkt\_len\_mean}) & packet length mean & 由 session 累積封包長度與封包數，以整數方式比較分位桶邊界 \\
+    前向封包最大比例 (\code{fwd\_max\_q}) & Fwd Pkt Len Max / Fwd Pkt Mean & 以前向最大封包長度與平均長度形成比例，部署時以交叉乘法避免除法與浮點數 \\
+    對稱性比例 (\code{sym\_ratio})     & Total Fwd Pkts / Total Bwd Pkts & 描述前向與後向封包數不對稱性，用於捕捉單向或高度偏斜流量 \\
+    平方封包長度變異係數 (\code{pkt\_cv\_sq}) & $(\text{Pkt Len Std} / \text{Pkt Len Mean})^2$ & 以平方形式保留封包長度變異資訊，避免 kernel 中開根號與浮點運算 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\paragraph{核心對比 C：Datapath Hook 分工。}
+既有 eBPF DDoS 防禦多強調 XDP 的早期丟棄能力；然而，所有邏輯皆放入 XDP 可能使最早期封包路徑承擔過多狀態與推論成本。本專題採 XDP / TC 分工：XDP 負責早期封包解析、黑名單檢查、SYN flood 相關處理與必要的輕量狀態更新；TC 則在 flow 統計較完整時執行 Contract5 特徵重建與 score table lookup。此分工使早期阻斷與模型評分各自位於較合適的 datapath hook。
+
+% =============================================================
+\section{威脅模型與系統假設}
+\label{sec:threat}
+
+\subsection{防禦目標}
+本系統主要鎖定可由 L3 / L4 flow 統計特徵表徵的 volumetric DDoS，特別是 CIC-IDS-2019 中的 UDP reflection / amplification 類型攻擊，例如 DNS、LDAP、MSSQL、NTP、NetBIOS、SNMP、SSDP、UDP 與 TFTP 等高流量攻擊。此類攻擊通常會在封包大小、方向對稱性、協定分布與 flow 統計上形成可由 Contract5 特徵捕捉的異常模式，因此適合交由 eBPF fast-path 進行低延遲篩選。對於 SYN flood 類型攻擊，本系統另以 XDP SYN-cookie path 作為補充防線，而非完全依賴分位桶 scorer。
+
+\subsection{攻擊者能力假設}
+本研究假設攻擊者可產生大量封包或連線，並可能在短時間內造成 flow 統計分布偏移。攻擊者不需要控制 defender 的 userspace 程式，只要攻擊流量進入取樣視窗，即可能污染 naïve streaming boundary update，使攻擊分布被逐步校準為新常態。因此，回饋層的安全重點在於區分正常流量漂移與攻擊污染，避免攻擊流量被誤納入 reference boundary。
+
+另一方面，本研究假設 defender 主機與控制面仍屬可信任運算基礎（Trusted Computing Base, TCB）：攻擊者無法取得 root 權限，也無法直接修改 eBPF 程式、BPF Map 內容或 Rust userspace 設定。若主機已被入侵、控制面憑證外洩，或攻擊者可直接寫入 BPF maps，則超出本專題威脅模型。
+
+\subsection{非目標與限制邊界}
+本專題目前不宣稱解決所有 DDoS 型態，限制邊界如下：
+
+\begin{itemize}
+  \item \textbf{SYN flood：} 由獨立 XDP SYN-cookie path 處理，不作為 bucket scorer 的主要偵測指標。
+  \item \textbf{UDP-lag：} 屬 Contract5 fast-path 的已知盲區，目前需要不同特徵或更細緻的流量行為建模。
+  \item \textbf{WebDDoS / LOIC-HTTP 等應用層洪水：} 可能需要 HTTP method、URL 長度、request pattern 或應用層行為特徵，超出目前 L3 / L4 datapath contract。
+  \item \textbf{跨資料集泛化：} BigFlow、IDS2018 HOIC 等資料集目前作為分佈轉移與限制分析，不作為本專題主要成功標準。
+  \item \textbf{主機入侵與控制面妥協：} 若攻擊者已取得 defender 主機權限或可修改 eBPF maps，則不在本研究處理範圍內。
+\end{itemize}
+
+% =============================================================
+\section{理論設計}
+\label{sec:design}
+
+\subsection{系統架構}
+
+\subsubsection{系統架構圖}
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/architecture.pdf}
+  \caption{系統整體閉環控制架構。XDP / TC 負責 kernel fast-path；Rust userspace 負責模型參數下發、日誌與邊界校準；完整 IF 不在 runtime datapath 中執行。}
+  \label{fig:arch}
+\end{figure}
+
+\subsubsection{文字說明}
+封包進入系統後，首先由 XDP fast-path 進行早期封包解析、黑名單比對、SYN-cookie 相關處理與必要的輕量狀態更新；若封包未被早期丟棄，後續由 TC hook 在 flow 統計較完整時重建部署規格所需的五個特徵。決策層將特徵依照分位桶邊界轉換為 5-bit index，並查詢 32-entry score table 取得異常分數。執行層根據分數與門檻執行 PASS、MONITOR、RATE\_LIMIT 或 DROP。回饋層則位於 Userspace，負責接收取樣事件、判斷正常漂移或攻擊污染，並在不中斷 datapath 的前提下更新分位桶邊界。
+
+\subsection{設計原則}
+本研究的設計目標，是將 flow-level 異常偵測邏輯轉換為可部署於 Linux kernel datapath 的輕量化 DDoS fast-path。完整 Isolation Forest 不在 runtime datapath 中執行；其角色是離線 teacher / reference，用於提供模型設計與評估依據。實際封包路徑中的唯一推論層為 eBPF fast-path 的 5-bit score table。
+
+基於此目標，系統設計遵循以下原則：
+
+\begin{itemize}
+  \item \textbf{Datapath 可重建性：} 所有部署特徵必須能由 L3 / L4 封包資訊與 kernel session state 累積，不依賴 payload 或完整 userspace flow exporter。
+  \item \textbf{Verifier-friendly 推論：} kernel fast-path 僅保留 bounded integer operations、位元組合與 BPF Map lookup，避免浮點運算、未受界定的迴圈與大型模型狀態。
+  \item \textbf{操作點導向：} 模型評估不只觀察 ROC-AUC，也重視 FPR $\leq 1\%$ 下的 F1、Recall 與 FNR，因為 DDoS 防護系統必須控制誤殺率。
+  \item \textbf{控制面 / 資料面分離：} eBPF datapath 僅執行 fast-path 決策；模型載入、邊界校準、事件記錄與熱更新由 Rust userspace 控制面負責。
+\end{itemize}
+
+\subsection{Contract5 與分位桶查表推論}
+本系統將可部署特徵收斂為 Contract5：\code{protocol}、\code{pkt\_len\_mean}、\code{fwd\_max\_q}、\code{sym\_ratio} 與 \code{pkt\_cv\_sq}。這五個特徵的共同條件是：可由 kernel session state 重建、可用整數或比例比較表示，並能被映射至固定順序的分位桶邊界。
+
+部署推論流程如下：
+
+\begin{enumerate}
+  \item 由 XDP / TC 更新 per-flow session state。
+  \item TC scorer 依據 session state 重建 Contract5 特徵。
+  \item 每個特徵與對應分位桶邊界比較，得到一個 bucket bit。
+  \item 五個 bucket bit 依固定 bit order 組成 5-bit index。
+  \item 以 index 查詢 32-entry score table，取得異常分數。
+  \item 分數與 threshold 比較後映射為 PASS、MONITOR、RATE\_LIMIT 或 DROP。
+\end{enumerate}
+
+此設計將完整樹狀模型的 runtime 推論替換為 $O(1)$ 查表。需特別說明的是，本報告使用「quantile-bucket distillation」描述離線異常偵測邏輯被壓縮為 kernel 查表部署格式的工程流程；現況部署表由二值特徵模型產生，嚴格的 Contract5 continuous teacher 到 bucket student 知識蒸餾仍屬後續工作。
+
+\subsection{XDP / TC Datapath 分工}
+XDP hook 位於封包進入 Linux network stack 之前，適合執行早期封包解析、BLOCK\_LIST 檢查、SYN-cookie 相關處理與早期丟棄；但若將所有狀態累積與模型評分皆放入 XDP，會使最早期封包路徑承擔過多計算與 verifier 風險。因此，本系統將 flow 統計較完整時才需要的 scorer 放在 TC hook 中執行。
+
+此分工可概括為：
+
+\begin{itemize}
+  \item \textbf{XDP：} early parse、blocklist、SYN-cookie、early DROP、session update。
+  \item \textbf{TC：} Contract5 feature reconstruction、5-bit index generation、score table lookup。
+  \item \textbf{Userspace：} model loading、BPF Map update、logging、adaptive boundary calibration。
+\end{itemize}
+
+\subsection{Adaptive Boundary Calibration}
+本研究的回饋機制不在線上重新訓練 Isolation Forest，而是校準分位桶邊界與 score-to-policy mapping。可將整體決策抽象為：
+
+\[
+x \xrightarrow{f_T} s \xrightarrow{g_t} b \xrightarrow{h} action
+\]
+
+其中 $f_T$ 代表離線異常偵測模型或 reference scoring function，$g_t$ 代表隨時間校準的 boundary / bucket mapping，$h$ 則代表 bucket score 到處置動作的 policy。線上更新的對象是 $g_t$，而非重新訓練 $f_T$。
+
+為避免 attack contamination，Userspace 同時維護 reference sketch $S_{ref}$ 與 live sketch $S_{live}$。$S_{ref}$ 僅接收通過 benign gate 的低風險樣本，$S_{live}$ 則觀察目前取樣視窗中的整體流量分布。當兩者差異上升時，系統根據 divergence 與 high-risk bucket jump 判斷 Normal、Uncertain 或 AttackFreeze。若判定為正常漂移，系統才緩慢校準邊界；若判定為攻擊污染，則凍結 reference boundary，避免攻擊流量被校準為正常。
+
+邊界寫回採 versioned double-buffer BPF Map：Userspace 先寫 inactive bank，再更新 metadata 切換 active bank，使 kernel fast-path 不會讀到半更新狀態。
+
+% =============================================================
+\section{系統實作}
+\label{sec:implementation}
+
+\subsection{專案模組分工}
+本系統由三個主要 Rust crate 與一組 Python 離線模型流程構成。Kernel-side eBPF 程式位於 \code{firewall-ebpf}，負責 XDP / TC hook、封包解析、session 更新、SYN-cookie、blocklist 與 scorer；共享資料結構位於 \code{firewall-common}，定義 \code{SessionKey}、\code{SessionValue}、\code{StatsEvent}、\code{BoundaryMeta} 與模型相關常數；Userspace 控制面位於 \code{firewall}，負責載入 eBPF bytecode、attach XDP / TC、載入 model JSON、寫入 BPF maps、讀取事件與執行 boundary update。Python 離線流程則負責 CIC-IDS-2019 資料處理、Isolation Forest 訓練、分位桶邊界產生與 model JSON 匯出。
+
+\subsection{Kernel Datapath 實作}
+Kernel-side datapath 由 XDP 與 TC 共同構成。XDP 主程式負責早期封包解析、BLOCK\_LIST 檢查、SYN-cookie 相關處理與早期丟棄；通過 XDP 的封包會更新 per-flow session state，使系統能累積後續 Contract5 所需的統計量。TC hook 則在 flow 統計較完整時執行 scorer，將 session 中的統計量轉換為 Contract5 特徵，並透過 5-bit bucket index 查詢 32-entry score table。此設計將高成本的樹狀模型推論移出 datapath，使 kernel fast-path 僅保留整數比較、位元組合與 BPF Map lookup。
+
+\subsection{模型部署規格與 BPF Map 載入}
+部署模型以 JSON 形式載入 userspace，並由 Rust loader 驗證 metadata 後寫入 BPF maps。模型格式包含 \code{version}、\code{feature\_order}、\code{threshold\_cmp}、\code{score\_scale}、\code{length\_unit}、\code{threshold}、\code{quantile\_bounds} 與 \code{score\_table}。其中 feature order 必須固定為 \code{protocol}、\code{pkt\_len\_mean}、\code{fwd\_max\_q}、\code{sym\_ratio}、\code{pkt\_cv\_sq}，且 bit order 採 least-significant bit first：
+
+\begin{equation}
+\begin{aligned}
+idx ={}& (protocol\_bit \ll 0) \\
+     |{}& (pkt\_len\_mean\_bit \ll 1) \\
+     |{}& (fwd\_max\_q\_bit \ll 2) \\
+     |{}& (sym\_ratio\_bit \ll 3) \\
+     |{}& (pkt\_cv\_sq\_bit \ll 4).
+\end{aligned}
+\end{equation}
+
+此規格禁止隱含 feature order，並要求 \code{score\_table} 長度為 32、\code{quantile\_bounds} 長度為 5。若 JSON metadata 不符合規格，userspace loader 應拒絕載入，以避免 Python 離線流程、Rust 控制面與 eBPF scorer 之間產生 silent mismatch。
+
+\subsection{Offline ML Pipeline}
+離線 ML pipeline 使用 CIC-IDS-2019 BENIGN-only 訓練資料建立 Isolation Forest 相關模型，並產出 kernel 可用的分位桶邊界與 score table。本研究區分三種 model class：Contract5 連續 IF 作為最終 teacher / reference；Abs20 / Full25 作為不可部署的 baseline 上界；部署 student 則是 5-bit all-binary 32-entry 查表模型。現況部署表由二值特徵模型產生；嚴格的 Contract5 continuous teacher 到 bucket student 之正式知識蒸餾仍屬後續工作。因此，本報告使用「quantile-bucket distillation」描述將離線異常偵測邏輯壓縮為 kernel 查表部署格式的工程流程，但不將其誇大為完整 teacher-student KD 已完成。
+
+\subsection{BoundaryUpdater 與事件回饋}
+Userspace 回饋層透過 kernel 送出的 \code{StatsEvent} 取得 flow-level score、特徵分子 / 分母與 benign-gate flag。Rust \code{BoundaryUpdater} 同時維護 \code{S\_ref} 與 \code{S\_live} 兩個草圖：\code{S\_ref} 僅接收低風險樣本，用以代表可信 reference distribution；\code{S\_live} 則接收目前取樣視窗中的整體樣本，用以觀察當前流量分布。當 divergence 或 high-risk bucket jump 顯示疑似攻擊污染時，GateState 會進入 AttackFreeze，凍結 reference boundary；若判定為正常漂移，則以 EMA 緩慢更新 boundary。
+
+邊界寫回採 versioned double-buffer BPF Map：userspace 先寫 inactive bank，再更新 metadata 切換 active bank，避免 kernel 讀到半更新狀態。此機制更新的是分位桶邊界與 score-to-policy mapping，而不是在線上重新訓練 Isolation Forest。
+
+\subsection{實作狀態與驗證邊界}
+目前核心資料結構、XDP / TC datapath、model JSON 載入、score table 查表、BoundaryUpdater 狀態機與 host-testable integration 已實作。Linux 端曾完成基本端到端執行，包含 eBPF 程式載入、XDP / TC attach、logger ring buffer 讀取與 graceful shutdown。仍待補充的是完整 on-hardware packet validation、adaptive boundary 觸發測試、blocklist 行為驗證，以及 throughput / pps / CPU overhead 等效能量測。因此，本報告在成果章節僅將目前系統定位為可部署 fast-path prototype 與 in-scope 實驗驗證，而不宣稱完整 production-grade DDoS 防護 benchmark 已完成。
+
+% =============================================================
+\section{成果與討論}
+\label{sec:results}
+
+\subsection{硬軟體規格}
+本節保留實驗環境表格，待最終 Linux 驗證機器確定後填入 CPU、記憶體、網卡、核心版本與工具鏈版本。由於 eBPF verifier 行為與 kernel 版本、clang / LLVM 版本及網卡驅動有關，最終報告應以實際驗證環境為準。
+\begin{table}[H]
+  \centering
+  \caption{實驗硬軟體環境規格}
+  \label{tab:spec}
+  \renewcommand{\arraystretch}{1.3}
+  \begin{tabularx}{\textwidth}{l X}
+    \toprule
+    \textbf{項目} & \textbf{規格} \\
+    \midrule
+    CPU              & （待填） \\
+    記憶體           & （待填） \\
+    網路卡           & （待填） \\
+    作業系統 / 核心版本 & （待填，eBPF 需 Linux 5.x 以上） \\
+    eBPF 工具鏈      & （待填，如 libbpf / clang 版本） \\
+    Userspace 語言   & Rust \\
+    離線訓練環境     & Python，scikit-learn、Polars、Pandas \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection{實驗目標與變數}
+本研究的主成果以 CIC-IDS-2019 in-scope 評估為準，並將操作點固定於 FPR $\leq 1\%$，避免使用最佳化於測試集的門檻造成過度樂觀。實驗比較 Contract5 連續 IF、Abs20 baseline、部署 binarized 32-entry student，以及監督式 Logistic Regression / Random Forest 參考上界。此處的成功標準不是跨資料集平均 AUC，而是部署模型是否能在低 FPR 操作點維持高偵測能力，並同時滿足 eBPF fast-path 的可部署性。
+
+\begin{table}[H]
+  \centering
+  \caption{CIC-DDoS2019 in-scope 偵測能力（操作點 FPR $\leq 1\%$）}
+  \label{tab:main-results}
+  \renewcommand{\arraystretch}{1.25}
+  \begin{tabular}{l l c c c c c c c}
+    \toprule
+    \textbf{模型} & \textbf{角色} & ROC-AUC & PR-AUC & Precision & Recall & F1 & FPR & FNR \\
+    \midrule
+    Contract5 連續 IF & 最終 teacher & 0.845 & 0.984 & 0.987 & 0.059 & 0.112 & 0.009 & 0.941 \\
+    Abs20 絕對特徵 IF & baseline & 0.892 & 0.983 & 0.991 & 0.102 & 0.186 & 0.010 & 0.898 \\
+    部署 binarized 32-entry & deployed student & 0.897 & 0.990 & 0.999 & 0.821 & 0.901 & 0.007 & 0.179 \\
+    Logistic Regression & supervised ref & 0.948 & 0.995 & 0.999 & 0.806 & 0.892 & 0.010 & 0.194 \\
+    Random Forest & supervised ref & 0.934 & 0.993 & 1.000 & 0.817 & 0.900 & 0.000 & 0.183 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+由表~\ref{tab:main-results} 可知，部署的 5-bit 32-entry student 在 FPR $<1\%$ 的操作點達到 F1 = 0.901、Recall = 0.821 與 FPR = 0.007，與監督式 Random Forest / Logistic Regression 的操作點表現相近。此結果顯示，分位桶二值化在本 in-scope 環境中並非單純造成資訊損失；相反地，它將攻擊流量推入特定高分 bucket，使嚴格 FPR 操作點下的可分性比連續 teacher 更穩定。換言之，本系統的價值不在忠實複製 teacher 的連續分數排序，而在於產生可於 kernel fast-path 執行且操作點穩健的查表式決策。
+
+\subsection{逐攻擊類型分析}
+\begin{table}[H]
+  \centering
+  \caption{部署 student 於 CIC-DDoS2019 子類型之 Recall（FPR $\leq 1\%$）}
+  \label{tab:per-attack}
+  \renewcommand{\arraystretch}{1.2}
+  \begin{tabular}{l c c}
+    \toprule
+    \textbf{攻擊類型} & \textbf{樣本數} & \textbf{deployed student Recall} \\
+    \midrule
+    DrDoS\_DNS & 4000 & 1.000 \\
+    DrDoS\_LDAP & 4000 & 1.000 \\
+    DrDoS\_MSSQL & 4000 & 1.000 \\
+    DrDoS\_NTP & 4000 & 0.998 \\
+    DrDoS\_NetBIOS & 4000 & 0.999 \\
+    DrDoS\_SNMP & 4000 & 1.000 \\
+    DrDoS\_SSDP & 4000 & 1.000 \\
+    DrDoS\_UDP & 4000 & 1.000 \\
+    TFTP & 4000 & 0.993 \\
+    Syn & 4000 & 0.000 \\
+    UDP-lag & 4000 & 0.131 \\
+    WebDDoS & 439 & 0.000 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+表~\ref{tab:per-attack} 顯示部署 fast-path 對 UDP reflection / amplification 類型攻擊與 TFTP 達 99\% 以上 Recall，符合本系統鎖定 volumetric DDoS 的威脅模型。相對地，Syn、UDP-lag 與 WebDDoS 為明確盲區：Syn 類攻擊另由 SYN-cookie 路徑處理，不以 bucket scorer 作為主要偵測手段；UDP-lag 與 WebDDoS 則需要不同特徵或更高層語意，並非目前 Contract5 fast-path 的主目標。
+
+\subsection{分位桶數量選擇}
+\begin{table}[H]
+  \centering
+  \caption{Static quantile bucket 數量敏感度（CIC-DDoS2019 in-scope）}
+  \label{tab:k-sweep}
+  \renewcommand{\arraystretch}{1.2}
+  \begin{tabular}{c c c c c c}
+    \toprule
+    \textbf{N} & \textbf{eBPF table} & ROC-AUC & PR-AUC & F1@FPR$\leq$1\% & Recall@1\% \\
+    \midrule
+    2 & 32-entry & 0.894 & 0.989 & 0.900 & 0.819 \\
+    4 & 1024-entry & 0.890 & 0.989 & 0.000 & 0.000 \\
+    8 & 32768-entry & 0.908 & 0.991 & 0.899 & 0.817 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+N=2 的選擇並非單純為了降低表大小而犧牲精度。表~\ref{tab:k-sweep} 顯示，N=4 雖然 ROC-AUC 與 PR-AUC 看似正常，但在 FPR $\leq 1\%$ 的操作點完全崩潰；N=8 雖可恢復操作點表現，但需要 32768-entry table，對 eBPF fast-path 的記憶體與 verifier 負擔明顯不利。因此，N=2 同時滿足 32-entry 小表、操作點穩健性與 kernel 可行性，是目前部署 contract 的合理選擇。
+
+\subsection{數據飄移與攻擊污染防護}
+本研究的 adaptive boundary 並非線上重訓 Isolation Forest，而是更新分位桶邊界與 score-to-policy mapping。此機制的核心風險是 attack contamination：若直接以目前視窗中的所有流量重新計算邊界，攻擊流量可能被納入新 reference distribution，使攻擊被校準為正常。為此，系統採 dual-sketch gated update，僅讓通過 benign gate 的低風險樣本進入 \code{S\_ref}，並以 \code{S\_live} 觀察當前整體分布。
+
+\begin{table}[H]
+  \centering
+  \caption{Attack contamination sweep：naive update 與 gated update 對照}
+  \label{tab:contamination}
+  \renewcommand{\arraystretch}{1.2}
+  \begin{tabular}{c c c c c c}
+    \toprule
+    \textbf{攻擊比例 $\rho$} & divergence & high-risk$\times$ & gate 決策 & Naive FNR & Gated FNR \\
+    \midrule
+    10\% & 0.349 & 34.6$\times$ & AttackFreeze & 0.190 & 0.182 \\
+    30\% & 1.194 & 70$\times$ & AttackFreeze & 1.000 & 0.182 \\
+    50\% & 2.224 & 89$\times$ & AttackFreeze & 1.000 & 0.182 \\
+    80\% & 3.166 & 119$\times$ & AttackFreeze & 1.000 & 0.182 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+表~\ref{tab:contamination} 顯示，naive streaming update 在攻擊比例 $\rho \geq 30\%$ 時 FNR 上升至 1.000，代表攻擊流量已被更新後的邊界洗白為正常。相較之下，dual-sketch gated update 在所有測試比例下皆觸發 AttackFreeze，將 FNR 維持於 baseline 0.182。此結果說明，在 DDoS 場景中，自適應機制若缺少污染隔離，反而可能破壞防禦邊界；gated update 的核心價值在於保留邊界校準能力，同時避免攻擊流量污染 reference boundary。
+
+\subsection{成果定位與限制}
+本專題的主要成果是建立一條可部署於 eBPF datapath 的低延遲 ML-based DDoS fast-path：Contract5 特徵可由 kernel session state 重建，五個 bucket bit 可組成 32-entry score table，並由 Rust userspace 進行模型載入與邊界更新。系統在 CIC-DDoS2019 上能有效覆蓋多數 UDP reflection / amplification 攻擊，但不宣稱解決所有 DDoS 型態。Syn、UDP-lag、WebDDoS 與跨資料集 HOIC / BigFlow 泛化皆屬限制或範圍外觀察。此外，完整 on-hardware throughput、kernel ns latency 與 CPU overhead 仍待最終驗證；目前系統效能數據僅能支持「查表推論遠低於完整 IF 推論成本」此一方向性結論。
+
+% =============================================================
+\newpage
+\begin{thebibliography}{99}
+
+\bibitem{cloudflare2025q1ddos}
+Cloudflare. ``Targeted by 20.5 million DDoS attacks, up 358\% year-over-year: Cloudflare's 2025 Q1 DDoS Threat Report.'' Cloudflare Blog, 2025. \url{https://blog.cloudflare.com/ddos-threat-report-for-2025-q1/}。
+
+\bibitem{linuxBpfVerifier}
+The Linux Kernel documentation. ``eBPF verifier.'' \url{https://docs.kernel.org/bpf/verifier.html}。
+
+\bibitem{lai2022ebpf}
+賴玠忠（2022）。\textit{基於 eBPF 之物聯網輕量監控機制的設計與實現}﹝碩士論文，國立政治大學﹞。臺灣博碩士論文知識加值系統。\url{https://hdl.handle.net/11296/9a28s3}。
+
+\bibitem{sun2019ml}
+孫維淋（2019）。\textit{植基於機器學習之分散式阻斷服務攻擊偵測}﹝碩士論文，國立高雄科技大學﹞。臺灣博碩士論文知識加值系統。\url{https://hdl.handle.net/11296/746r5s}。
+
+\bibitem{zhao2024autoencoder}
+趙奕勛（2024）。\textit{基於自編碼器重構誤差與孤立森林之未知分散式阻斷服務攻擊偵測}﹝碩士論文，國立高雄科技大學﹞。臺灣博碩士論文知識加值系統。\url{https://hdl.handle.net/11296/94azqr}。
+
+\bibitem{wu2024dnn}
+吳承恩（2024）。\textit{以深度神經網路和優化特徵提高 DDoS 攻擊檢測效果}﹝碩士論文，萬能科技大學﹞。臺灣博碩士論文知識加值系統。\url{https://hdl.handle.net/11296/spx9zx}。
+
+\bibitem{remya2025ebpf}
+S. Remya et al., ``eBPF-Based Runtime Detection of Semantic DDoS Attacks in Linux Containers,'' \textit{IEEE Access}, vol. 13, pp. 169178--169219, 2025, doi: 10.1109/ACCESS.2025.3614389.
+
+\bibitem{verma2022feature}
+J. Verma, A. Bhandari and G. Singh, ``Feature Selection Algorithm Characterization for NIDS using Machine and Deep learning,'' \textit{2022 IEEE International IOT, Electronics and Mechatronics Conference (IEMTRONICS)}, Toronto, ON, Canada, 2022, pp. 1--7, doi: 10.1109/IEMTRONICS55184.2022.9795709.
+
+\bibitem{moyano2023feature}
+R. F. Moyano et al., ``A Feature Selection Approach Towards the Standardization of Network Security Datasets,'' \textit{2023 IEEE 9th International Conference on Network Softwarization (NetSoft)}, Madrid, Spain, 2023, pp. 257--261, doi: 10.1109/NetSoft57336.2023.10175497.
+
+\bibitem{uddin2026bigflow}
+Uddin, M. B., Arefin, M. S., \& Hussain, M. M. M. (2026). BigFlow-NIDS: A large-scale dataset for network intrusion detection in big data environment. \textit{Data in Brief}, 65, 112530. \url{https://doi.org/10.1016/j.dib.2026.112530}.
+
+\bibitem{shahinfar2025demystifying}
+Farbod Shahinfar, Sebastiano Miano, Aurojit Panda, and Gianni Antichi. 2025. Demystifying Performance of eBPF Network Applications. \textit{Proc. ACM Netw.} 3, CoNEXT3, Article 16 (September 2025), 21 pages. \url{https://doi.org/10.1145/3749216}.
+
+\end{thebibliography}
+
+\end{document}
