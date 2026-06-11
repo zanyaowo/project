@@ -162,6 +162,53 @@ let _ = std::process::Command::new("tc")
 
 ---
 
+## I8. `combined stack size of 2 calls is 640. Too large`（2026-06-11）
+
+**症狀：** BPF_PROG_LOAD 失敗，`combined stack size of N calls is XXX. Too large`，並列出 per-subprogram `stack depth 288+0+344+...`。
+
+**觸發條件：** 512-byte stack 上限是**沿 call path 累加**的（每個 frame round up 到 32 bytes）。IPv6 位址改 16-byte 後 `parse_packet` frame 漲到 344，`xdp_firewall(288) + parse_packet(352) = 640 > 512`。
+
+**根因：** `parse_packet` 內 `L3Fields` struct 存了兩個 `[u8; 16]` 位址（32 B），之後又複製進 `PacketInfo { … }` literal（~64 B stack 暫存）才 `*out =` 寫出——兩個位址在 frame 上活了兩份。
+
+**規避方式：** 子函式改收 `&mut PacketInfo`，把大欄位（位址、len）**直接寫進 `*out`**，metadata struct 只留小 scalar；尾端逐欄寫入取代整個 struct literal。`parse_packet` frame 344 → 80。注意**不可**用「再拆一層 call」來修——巢狀 call 加進同一條 path 的總和。
+
+**量測工具：** `llvm-objdump -d` 後統計每個函式最大 `r10 - 0xNN` offset（per-function frame size）。
+
+**相關修補：** `service/firewall/firewall-ebpf/src/parser.rs`（`L3Meta` 重構）
+
+---
+
+## I9. bpf-linker 的 memset/memcpy 不寫 R0 → `R0 !read_ok`（2026-06-11）
+
+**症狀：** BPF_PROG_LOAD 失敗，verifier 在某個 sub-8-byte store 處報 `R0 !read_ok`。
+
+**觸發條件：**
+- Rust 端有「大半為常數 0 的陣列賦值」（如 `out.src_ip = ipv4_mapped(addr)` 的 10-byte 零前綴）或大 struct 複製，LLVM 把它降成 `memset()` / `memcpy()` **libcall**（bpf-linker 以真正的 BPF-to-BPF 函式提供這些 symbol）
+- 同時 LLVM 的 regalloc 把一個活值留在 R0 **跨越**該 call
+
+**根因：** bpf-linker 的 memset/memcpy 在 `exit` 前從不寫 R0。verifier 視 call 之後的 R0 為 callee 回傳值＝未定義；caller 若讀取舊值即拒絕。是否觸發取決於 regalloc，**換個版本/改點程式碼就可能爆**。
+
+**規避方式：** 熱路徑避免會變 libcall 的 pattern——零前綴陣列用「一個 u64 store + 個別 byte store」明確寫（`set_ipv4_mapped`）；16-byte 複製用兩組 `read_unaligned`/`write_unaligned` u64（`copy_ip16`）。
+**診斷：** `llvm-objdump -dr` 找 `R_BPF_64_32 memset/memcpy` 的 call site，看 call 之後 R0 是否在被讀取前重新定義。
+
+**相關修補：** `service/firewall/firewall-ebpf/src/parser.rs`
+
+---
+
+## I10. Enum payload poison 複製 → `invalid size of register spill`（2026-06-11）
+
+**症狀：** BPF_PROG_LOAD 失敗，`invalid size of register spill`，trace 中可見一個**指標值**（如 `R1=fp[0]-216`）被以 u8 store 寫進 stack。
+
+**觸發條件：** `let l4_info = match … _ => L4Info::Unknown;` 之後 `out.l4_info = l4_info`。`Unknown` variant 的 payload bytes 是未初始化（poison）；整個 enum 複製時 LLVM 可用**任何活暫存器**填這些 bytes——本例選了還活著的 `out` 指標，指標以 sub-8-byte 寫進 stack 即被拒。
+
+**根因：** Rust/LLVM 對 poison bytes 的 store 內容無任何保證；verifier 卻對 stack store 做 pointer/scalar 型別追蹤。舊寫法（`*out = PacketInfo{…}` 整塊 stack 暫存 memcpy）讀的是 STACK_MISC，合法，所以以前沒爆。
+
+**規避方式：** 不要 materialise 帶 payload 的 enum 再複製。各 match arm **直接寫** `out.l4_info = L4Info::Tcp(tcp)`；無 payload 的 variant（Unknown）**完全不寫**，依賴 caller 的 `PacketInfo::default()`（`L4Info` 的 `#[default]` 即 Unknown）。
+
+**相關修補：** `service/firewall/firewall-ebpf/src/parser.rs`（`parse_packet` L4 段）
+
+---
+
 ## 通用學到的原則
 
 1. **eBPF entry function 越大越脆弱**：LLVM 的 register allocator 在大量 inline 時更容易產生「某 register 跨分支半初始化」的程式碼。把實作放到 helper function（回傳 scalar）通常最穩。
@@ -169,3 +216,4 @@ let _ = std::process::Command::new("tc")
 3. **任何 `while` / loop 都要能靜態 bound**：對 BPF 來說最安全的是 unrolled fixed-iteration。
 4. **debug vs release 不只是優化差距**：debug 會插入 overflow check，可能引入 BPF 不支援的 intrinsic。常規路徑：用 release 編 eBPF。
 5. **遇到 verifier 錯誤先看 ELF section dump**：classifier / xdp section 的 size 與末尾指令往往直接揭示問題（empty section、未終止於 exit、有不該存在的 BPF-to-BPF call）。
+6. **大型陣列/struct 的隱式複製是三重地雷**：stack frame 膨脹（I8）、memset/memcpy libcall 的 R0 hazard（I9）、enum poison bytes 的指標 spill（I10）。熱路徑上對 16-byte 以上的資料移動一律用明確 scalar store／逐欄寫入，並以 `llvm-objdump -dr` 驗證沒有 `R_BPF_64_32 mem*` relocation 出現在意料之外的位置。

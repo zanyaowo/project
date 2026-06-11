@@ -3,24 +3,22 @@ use firewall_common::constants::{
     ETH_IPV4, ETH_IPV6, IPPROTO_ICMP, IPPROTO_ICMP_V6, IPPROTO_TCP, IPPROTO_UDP,
 };
 use firewall_common::protocol::{IcmpInfo, L4Info, TcpInfo, UdpInfo};
-use firewall_common::session::ipv4_mapped;
 use network_types::eth::EthHdr;
 use network_types::icmp::IcmpHdr;
 use network_types::ip::{IpProto, Ipv4Hdr, Ipv6Hdr};
 use network_types::tcp::TcpHdr;
 use network_types::udp::UdpHdr;
 
-// Extracted L3 (network-layer) fields. parse_ipv4 / parse_ipv6 read these
-// scalars directly through the packet pointer instead of copying the whole
-// Ipv4Hdr (20 B) / Ipv6Hdr (40 B) onto the stack — those full-header copies
-// were the dominant contributor to parse_packet's BPF stack frame.
-struct L3Fields {
-    src_ip: [u8; 16],
-    dst_ip: [u8; 16],
+// Small L3 metadata returned by parse_ipv4 / parse_ipv6. The 16-byte src/dst
+// addresses, `is_ipv6` and `len` are *not* carried here: they are written
+// straight into the caller-provided `&mut PacketInfo` by parse_ipv4/parse_ipv6.
+// Keeping the two [u8; 16] addresses out of this struct (and out of a separate
+// PacketInfo literal) removes ~120 B from parse_packet's BPF stack frame — the
+// xdp_firewall(288) → parse_packet path otherwise sums to 640 > the 512-byte
+// combined-stack limit ("combined stack size of 2 calls is 640. Too large").
+struct L3Meta {
     proto: u8,
-    is_ipv6: bool,
     ip_header_len: usize,
-    ip_total_len: u16,
     l4_offset: usize,
 }
 
@@ -65,6 +63,50 @@ unsafe fn ptr_at<T>(start: usize, end: usize, offset: usize) -> Result<*const T,
     Ok(start.wrapping_add(offset) as *const T)
 }
 
+/// Write the IPv4-mapped form (`::ffff:a.b.c.d`) of `addr` into `dst` using
+/// explicit scalar stores instead of `*dst = ipv4_mapped(addr)`.
+///
+/// The array assignment materialises a [u8; 16] whose 10-byte zero prefix LLVM
+/// lowers to a memset() *call* (bpf-linker emits memset as a real BPF-to-BPF
+/// function). That callee never writes R0 before `exit`, so when LLVM keeps a
+/// live value in R0 across the call the verifier rejects the program with
+/// "R0 !read_ok" (hit on load, 2026-06-11). A u64 store plus individual byte
+/// stores cannot be turned into a libcall.
+#[inline(always)]
+fn set_ipv4_mapped(dst: &mut [u8; 16], addr: [u8; 4]) {
+    // SAFETY: `dst` is a valid `&mut [u8; 16]`; the 8-byte store lies within it.
+    // BPF allows unaligned access, and byte order is irrelevant for zeroes.
+    unsafe {
+        core::ptr::write_unaligned(dst.as_mut_ptr().cast::<u64>(), 0u64);
+    }
+    dst[8] = 0;
+    dst[9] = 0;
+    dst[10] = 0xff;
+    dst[11] = 0xff;
+    dst[12] = addr[0];
+    dst[13] = addr[1];
+    dst[14] = addr[2];
+    dst[15] = addr[3];
+}
+
+/// 16-byte copy as two u64 load/store pairs. Same rationale as
+/// `set_ipv4_mapped`: a plain `[u8; 16]` assignment is at LLVM's mercy to
+/// become a memcpy() libcall, and bpf-linker's memcpy has the same
+/// R0-never-written hazard as its memset.
+#[inline(always)]
+fn copy_ip16(dst: &mut [u8; 16], src: &[u8; 16]) {
+    // SAFETY: both are valid 16-byte buffers; BPF allows unaligned access.
+    // Native-endian read + native-endian write preserves byte order.
+    unsafe {
+        let s = src.as_ptr();
+        let d = dst.as_mut_ptr();
+        let lo = core::ptr::read_unaligned(s.cast::<u64>());
+        let hi = core::ptr::read_unaligned(s.add(8).cast::<u64>());
+        core::ptr::write_unaligned(d.cast::<u64>(), lo);
+        core::ptr::write_unaligned(d.add(8).cast::<u64>(), hi);
+    }
+}
+
 pub fn parse_eth(start: usize, end: usize) -> Result<(u16, usize), ()> {
     // SAFETY: `ptr_at` verifies that [0, size_of::<EthHdr>()) lies within
     // [start, end). `EthHdr` is `#[repr(C, packed)]`, so unaligned reads
@@ -76,7 +118,7 @@ pub fn parse_eth(start: usize, end: usize) -> Result<(u16, usize), ()> {
     }
 }
 
-fn parse_ipv4(start: usize, end: usize, offset: usize) -> Result<L3Fields, ()> {
+fn parse_ipv4(start: usize, end: usize, offset: usize, out: &mut PacketInfo) -> Result<L3Meta, ()> {
     // SAFETY: `ptr_at` verifies that [offset, offset + size_of::<Ipv4Hdr>()) lies within
     // [start, end). `Ipv4Hdr` is `#[repr(C, packed)]`, allowing unaligned reads.
     // The header is copied out by value (`*ptr`) so all field reads — and the
@@ -84,6 +126,11 @@ fn parse_ipv4(start: usize, end: usize, offset: usize) -> Result<L3Fields, ()> {
     // fields through the live packet pointer instead keeps that pointer alive
     // into the PacketInfo build, where the verifier rejects spilling a packet
     // pointer into a sub-8-byte field ("invalid size of register spill").
+    //
+    // The 16-byte addresses, `is_ipv6` and `len` are written straight into `*out`
+    // rather than returned: the by-value copy above already kills the packet
+    // pointer's liveness, so these stores are plain stack writes, and keeping the
+    // two [u8; 16] arrays out of a returned struct keeps parse_packet's frame small.
     unsafe {
         let ipv4_hdr: Ipv4Hdr = *ptr_at::<Ipv4Hdr>(start, end, offset)?;
         let proto = match ipv4_hdr.proto {
@@ -92,26 +139,27 @@ fn parse_ipv4(start: usize, end: usize, offset: usize) -> Result<L3Fields, ()> {
             IpProto::Icmp => IPPROTO_ICMP,
             _ => 0,
         };
-        Ok(L3Fields {
-            src_ip: ipv4_mapped(ipv4_hdr.src_addr),
-            dst_ip: ipv4_mapped(ipv4_hdr.dst_addr),
+        set_ipv4_mapped(&mut out.src_ip, ipv4_hdr.src_addr);
+        set_ipv4_mapped(&mut out.dst_ip, ipv4_hdr.dst_addr);
+        out.is_ipv6 = false;
+        out.len = u16::from_be_bytes(ipv4_hdr.tot_len);
+        Ok(L3Meta {
             proto,
-            is_ipv6: false,
             ip_header_len: ((ipv4_hdr.vihl & 0x0F) as usize) * 4,
-            ip_total_len: u16::from_be_bytes(ipv4_hdr.tot_len),
             l4_offset: offset + size_of::<Ipv4Hdr>(),
         })
     }
 }
 
-fn parse_ipv6(start: usize, end: usize, offset: usize) -> Result<L3Fields, ()> {
+fn parse_ipv6(start: usize, end: usize, offset: usize, out: &mut PacketInfo) -> Result<L3Meta, ()> {
     // SAFETY: `ptr_at` verifies that [offset, offset + size_of::<Ipv6Hdr>()) lies within
     // [start, end). `Ipv6Hdr` is `#[repr(C, packed)]`, allowing unaligned reads.
     // The header is copied out by value (`*ptr`) before any field is read, for the same
     // reason as parse_ipv4: reading the 16-byte src/dst addresses through the live packet
     // pointer keeps it alive into the PacketInfo build, where spilling a packet pointer
     // into a sub-8-byte field is rejected ("invalid size of register spill"). Copying
-    // first materialises the addresses as stack scalars.
+    // first materialises the addresses as stack scalars; they (and `is_ipv6` / `len`)
+    // are then written straight into `*out` to keep parse_packet's frame small.
     unsafe {
         let hdr: Ipv6Hdr = *ptr_at::<Ipv6Hdr>(start, end, offset)?;
         // next_hdr is the protocol number (IpProto is repr(u8)). Extension headers
@@ -124,15 +172,13 @@ fn parse_ipv6(start: usize, end: usize, offset: usize) -> Result<L3Fields, ()> {
         };
         // IPv6 payload_len excludes the 40-byte header; add it back so `len`
         // stays comparable to IPv4 tot_len downstream.
-        let ip_total_len =
-            u16::from_be_bytes(hdr.payload_len).saturating_add(size_of::<Ipv6Hdr>() as u16);
-        Ok(L3Fields {
-            src_ip: hdr.src_addr,
-            dst_ip: hdr.dst_addr,
+        copy_ip16(&mut out.src_ip, &hdr.src_addr);
+        copy_ip16(&mut out.dst_ip, &hdr.dst_addr);
+        out.is_ipv6 = true;
+        out.len = u16::from_be_bytes(hdr.payload_len).saturating_add(size_of::<Ipv6Hdr>() as u16);
+        Ok(L3Meta {
             proto,
-            is_ipv6: true,
             ip_header_len: size_of::<Ipv6Hdr>(),
-            ip_total_len,
             l4_offset: offset + size_of::<Ipv6Hdr>(),
         })
     }
@@ -246,44 +292,56 @@ pub fn parse_packet(start: usize, end: usize, total_len: u64, out: &mut PacketIn
         Err(_) => return false,
     };
 
+    // parse_ipv4 / parse_ipv6 write src_ip, dst_ip, is_ipv6 and len directly into
+    // `*out`; only the small scalars needed for the L4 offset come back here.
     let l3 = match eth_type {
-        ETH_IPV4 => parse_ipv4(start, end, l3_offset),
-        ETH_IPV6 => parse_ipv6(start, end, l3_offset),
+        ETH_IPV4 => parse_ipv4(start, end, l3_offset, out),
+        ETH_IPV6 => parse_ipv6(start, end, l3_offset, out),
         _ => return false,
     };
-    let L3Fields {
-        src_ip,
-        dst_ip,
+    let L3Meta {
         proto,
-        is_ipv6,
         ip_header_len,
-        ip_total_len,
         l4_offset,
     } = match l3 {
         Ok(v) => v,
         Err(_) => return false,
     };
 
-    let l4_info = match proto {
+    // Each arm writes `out.l4_info` directly instead of materialising an
+    // `L4Info` local and copying it into `*out` afterwards. The whole-enum
+    // copy includes the variant payload bytes, which are *uninitialized*
+    // (poison) for `Unknown` — LLVM is free to "fill" them from any live
+    // register, and it picked the `out` pointer itself, which the verifier
+    // rejects when stored sub-8-byte into stack memory ("invalid size of
+    // register spill", IPv6 unknown-next_hdr path, 2026-06-11). The Unknown
+    // arm therefore writes nothing at all: callers pass a fresh
+    // `PacketInfo::default()`, whose `l4_info` already is `L4Info::Unknown`.
+    let l4_header_len = match proto {
         IPPROTO_TCP => match parse_tcp(start, end, l4_offset) {
-            Ok(tcp) => L4Info::Tcp(tcp),
+            Ok(tcp) => {
+                let hl = tcp.header_len as usize;
+                out.l4_info = L4Info::Tcp(tcp);
+                hl
+            }
             Err(_) => return false,
         },
         IPPROTO_UDP => match parse_udp(start, end, l4_offset) {
-            Ok(udp) => L4Info::Udp(udp),
+            Ok(udp) => {
+                let hl = udp.header_len as usize;
+                out.l4_info = L4Info::Udp(udp);
+                hl
+            }
             Err(_) => return false,
         },
         IPPROTO_ICMP | IPPROTO_ICMP_V6 => match parse_icmp(start, end, l4_offset) {
-            Ok(icmp) => L4Info::Icmp(icmp),
+            Ok(icmp) => {
+                let hl = icmp.header_len as usize;
+                out.l4_info = L4Info::Icmp(icmp);
+                hl
+            }
             Err(_) => return false,
         },
-        _ => L4Info::Unknown,
-    };
-
-    let l4_header_len = match &l4_info {
-        L4Info::Tcp(tcp) => tcp.header_len as usize,
-        L4Info::Udp(udp) => udp.header_len as usize,
-        L4Info::Icmp(icmp) => icmp.header_len as usize,
         _ => 0,
     };
 
@@ -295,16 +353,15 @@ pub fn parse_packet(start: usize, end: usize, total_len: u64, out: &mut PacketIn
         0
     };
 
-    *out = PacketInfo {
-        src_ip,
-        dst_ip,
-        proto,
-        is_ipv6,
-        len: ip_total_len,
-        payload_len,
-        l4_info,
-        padding: [0; 5],
-    };
+    // src_ip / dst_ip / is_ipv6 / len were written by parse_ipv4/parse_ipv6 and
+    // l4_info by the match above. Write the rest directly into `*out` rather than
+    // building a full PacketInfo literal on the stack (the literal was a ~64 B
+    // temporary that, on top of the L3 addresses, pushed parse_packet's frame over
+    // the 512-byte combined limit). `padding` is not touched: the caller's
+    // PacketInfo::default() already zeroed it, and writing `[0; 5]` here emitted
+    // one more memset() libcall (R0-hazard-prone, see set_ipv4_mapped).
+    out.proto = proto;
+    out.payload_len = payload_len;
 
     true
 }
