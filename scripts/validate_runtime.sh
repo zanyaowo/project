@@ -43,7 +43,9 @@ require_cmd() {
 }
 
 map_loaded() {
-    bpftool map show 2>/dev/null | grep -q "name $1"
+    # Direct name lookup; grepping the full `map show` listing proved flaky
+    # (BLOCK_LIST/SESSIONS reported missing while demonstrably loaded).
+    bpftool map show name "$1" >/dev/null 2>&1
 }
 
 require_maps_loaded() {
@@ -87,12 +89,18 @@ cmd_load() {
         c_red  "  FAIL: no xdp marker on ${IFACE} (is the firewall running?)"
     fi
 
-    echo "[TC]  tc filter show dev ${IFACE} egress:"
-    if tc filter show dev "${IFACE}" egress 2>/dev/null | grep -q .; then
-        c_grn "  PASS: TC egress filter present"
+    # aya 0.13 attaches the classifier as a TCX link on kernels >= 6.6, which
+    # is invisible to legacy `tc filter show`; check `bpftool net show` first
+    # and keep the legacy filter check as fallback for older kernels.
+    echo "[TC]  egress program on ${IFACE} (tcx via bpftool net / legacy tc filter):"
+    if bpftool net show dev "${IFACE}" 2>/dev/null | grep -q 'tcx/egress'; then
+        c_grn "  PASS: TCX egress program attached"
+        bpftool net show dev "${IFACE}" 2>/dev/null | grep 'tcx/egress' | sed 's/^/    /'
+    elif tc filter show dev "${IFACE}" egress 2>/dev/null | grep -q .; then
+        c_grn "  PASS: TC egress filter present (legacy netlink)"
         tc filter show dev "${IFACE}" egress 2>/dev/null | sed 's/^/    /'
     else
-        c_red  "  FAIL: no TC egress filter on ${IFACE}"
+        c_red  "  FAIL: no TC egress program on ${IFACE}"
     fi
 
     echo "[MAPS] expected maps:"
