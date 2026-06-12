@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "feature_order": [
+    "protocol",
+    "pkt_len_mean",
+    "fwd_max_q",
+    "sym_ratio",
+    "pkt_cv_sq"
+  ],
+  "threshold_cmp": ">=",
+  "score_scale": 10000,
+  "length_unit": "packet_len",
+  "threshold": 7323,
+  "quantile_bounds": [
+    {
+      "name": "protocol",
+      "type": "absolute",
+      "value": 6
+    },
+    {
+      "name": "pkt_len_mean",
+      "type": "absolute",
+      "value": 31
+    },
+    {
+      "name": "fwd_max_q",
+      "type": "ratio",
+      "numer": 1021689,
+      "denom": 1048576
+    },
+    {
+      "name": "sym_ratio",
+      "type": "ratio",
+      "numer": 729444,
+      "denom": 1048576
+    },
+    {
+      "name": "pkt_cv_sq",
+      "type": "ratio",
+      "numer": 215933,
+      "denom": 1048576
+    }
+  ],
+  "score_table": [
+    3558,
+    4417,
+    6204,
+    4136,
+    6204,
+    6204,
+    6204,
+    4094,
+    3820,
+    4917,
+    6204,
+    4824,
+    3610,
+    6204,
+    6204,
+    6498,
+    4711,
+    6204,
+    6139,
+    4363,
+    4786,
+    6204,
+    5657,
+    4313,
+    4249,
+    6204,
+    6204,
+    6204,
+    3837,
+    6204,
+    4985,
+    6337
+  ]
+}

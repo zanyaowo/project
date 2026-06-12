@@ -1,0 +1,52 @@
+{
+  "scope": "CIC-DDoS2019 only",
+  "op_point": "FPR<=0.01",
+  "method": "per-bucket teacher-score aggregation (deployed bounds, control group)",
+  "empty_buckets": [
+    2,
+    4,
+    5,
+    6,
+    10,
+    13,
+    14,
+    17,
+    21,
+    25,
+    26,
+    27,
+    29
+  ],
+  "models": {
+    "teacher (Contract5 \u9023\u7e8c)": {
+      "roc_auc": 0.8448986159964708,
+      "pr_auc": 0.984063014018382,
+      "precision": 0.9857677902621723,
+      "recall": 0.059228588145281064,
+      "f1": 0.11174322832639891,
+      "fpr": 0.009495252373813094,
+      "fnr": 0.9407714118547189,
+      "spearman_to_teacher": 0.9999999999999999
+    },
+    "student-KD (per-bucket \u805a\u5408)": {
+      "roc_auc": 0.8703643924920837,
+      "pr_auc": 0.9874452469278941,
+      "precision": 0.9991779020059192,
+      "recall": 0.8205139745263064,
+      "f1": 0.9010750030890893,
+      "fpr": 0.0074962518740629685,
+      "fnr": 0.1794860254736937,
+      "spearman_to_teacher": 0.5563225522321331
+    },
+    "student-binarized (\u90e8\u7f72 32-entry)": {
+      "roc_auc": 0.8963455510644246,
+      "pr_auc": 0.9895289100154495,
+      "precision": 0.9993976233503093,
+      "recall": 0.8213690985192853,
+      "f1": 0.9016798418972332,
+      "fpr": 0.005497251374312844,
+      "fnr": 0.1786309014807147,
+      "spearman_to_teacher": 0.548908340074391
+    }
+  }
+}
