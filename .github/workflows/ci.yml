@@ -33,7 +33,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: service/firewall
-      - run: cargo clippy --manifest-path service/firewall/Cargo.toml --package firewall --all-features -- -D warnings
+      # main.rs embeds the eBPF bytecode via include_bytes_aligned!(env!("FIREWALL_BPF")),
+      # so even type-checking needs the env var to point at an existing file.
+      # Clippy never runs the binary; an empty placeholder is enough.
+      - name: Create placeholder eBPF bytecode for env!("FIREWALL_BPF")
+        run: install -D /dev/null "$RUNNER_TEMP/firewall-ebpf-placeholder"
+      - run: |
+          FIREWALL_BPF="$RUNNER_TEMP/firewall-ebpf-placeholder" \
+          cargo clippy --manifest-path service/firewall/Cargo.toml --package firewall --all-features -- -D warnings
 
   # Job 3: 編譯 eBPF bytecode（交叉編譯）
   build-ebpf:

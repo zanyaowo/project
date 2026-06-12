@@ -10,7 +10,11 @@ use tokio::time::{interval, Duration};
 struct SessionSummary {
     orig_bytes: u64,
     resp_bytes: u64,
+    // Aggregated alongside bytes for completeness; the session log line only
+    // prints bytes today.
+    #[allow(dead_code)]
     orig_pkts: u64,
+    #[allow(dead_code)]
     resp_pkts: u64,
     start_ts: u64,
     last_seen_ts: u64,
@@ -79,7 +83,7 @@ impl<'a> Logger<'a> {
     }
 
     pub async fn start(&mut self) -> anyhow::Result<()> {
-        let mut async_fd = AsyncFd::new(self.ring_buf.as_raw_fd())?;
+        let async_fd = AsyncFd::new(self.ring_buf.as_raw_fd())?;
         let mut metrics_ticker = interval(Duration::from_secs(60));
         let mut events_processed: u64 = 0;
 

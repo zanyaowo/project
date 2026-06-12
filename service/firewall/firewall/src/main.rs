@@ -1,3 +1,8 @@
+// `lib` below is a plain submodule of the binary, not a library target root.
+// special_module_name is an early-pass lint: the item-level allow is ignored,
+// it must sit at crate level.
+#![allow(special_module_name)]
+
 use crate::lib::boundary_updater::BoundaryUpdater;
 use crate::lib::config::Config;
 use crate::lib::controller::FirewallController;
@@ -78,11 +83,11 @@ async fn main() -> Result<(), anyhow::Error> {
     let iface = config.network.interface.as_str();
 
     if config.network.enable_xdp {
-        controller.attach_xdp(&iface)?;
+        controller.attach_xdp(iface)?;
     }
 
     if config.network.enable_tc {
-        controller.attach_tc(&iface)?;
+        controller.attach_tc(iface)?;
     }
 
     let mut session_map_data = None;
@@ -120,8 +125,8 @@ async fn main() -> Result<(), anyhow::Error> {
     let boundary_meta_map =
         boundary_meta_data.ok_or_else(|| anyhow::anyhow!("BOUNDARY_META map not found"))?;
 
-    let drop_events_map = drop_events_data
-        .ok_or_else(|| anyhow::anyhow!("DROP_EVENTS map not found"))?;
+    let drop_events_map =
+        drop_events_data.ok_or_else(|| anyhow::anyhow!("DROP_EVENTS map not found"))?;
     let session_table = PerCpuHashMap::try_from(session_map)?;
     let event_ring_buf = RingBuf::try_from(event_map)?;
     let drop_events: PerCpuArray<_, u64> = PerCpuArray::try_from(drop_events_map)?;

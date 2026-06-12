@@ -335,7 +335,7 @@ impl<'a> BoundaryUpdater<'a> {
         }
         self.seed();
 
-        let mut async_fd = AsyncFd::new(self.ring_buf.as_raw_fd())?;
+        let async_fd = AsyncFd::new(self.ring_buf.as_raw_fd())?;
         loop {
             let mut guard = async_fd.readable().await?;
 
@@ -351,10 +351,8 @@ impl<'a> BoundaryUpdater<'a> {
                             continue; // raw dropped here
                         }
                         // SAFETY: size checked; StatsEvent is repr(C) + Pod.
-                        let ev = unsafe {
-                            (data.as_ptr() as *const StatsEvent).read_unaligned()
-                        };
-                        ev // raw dropped here
+                        unsafe { (data.as_ptr() as *const StatsEvent).read_unaligned() }
+                        // raw dropped here
                     }
                 };
 

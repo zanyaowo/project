@@ -10,7 +10,6 @@ const ETH_HDR_LEN: usize = mem::size_of::<EthHdr>();
 const IP_HDR_LEN: usize = mem::size_of::<Ipv4Hdr>();
 const TCP_HDR_LEN: usize = mem::size_of::<TcpHdr>();
 
-
 #[map]
 static SECRET_KEY: Array<u32> = Array::with_max_entries(1, 0);
 

@@ -1,15 +1,15 @@
-use firewall_common::model::ModelConfig;
 use log::Level;
 use serde::Deserialize;
 use std::fs;
 use std::path::Path;
-use std::sync::Arc;
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct Config {
     pub network: NetworkConfig,
     pub security: SecurityConfig,
     pub log: LogConfig,
+    // Map sizes are compile-time only (see MapsConfig); parsed but never read.
+    #[allow(dead_code)]
     pub maps: MapsConfig,
     pub model: ModelSetting,
     pub adaptive: BoundaryAdaptConfig,
@@ -45,6 +45,7 @@ pub struct SecurityConfig {
 /// BPF map sizes are set at compile time via build.rs constants; changing these
 /// values at runtime has no effect — a recompile is required for them to apply.
 #[derive(Deserialize, Clone, Debug)]
+#[allow(dead_code)]
 pub struct MapsConfig {
     pub block_list_size: u32,
     pub session_table_size: u32,
@@ -56,6 +57,8 @@ pub struct ModelSetting {
     pub enabled: bool,
     pub model_file: String,
     pub action: String,
+    // Planned feature: reload model.json without restart; not wired yet.
+    #[allow(dead_code)]
     pub hot_reload: bool,
 }
 
@@ -63,6 +66,8 @@ pub struct ModelSetting {
 pub struct BoundaryAdaptConfig {
     pub enabled: bool,
     pub batch_size: usize,
+    // Sampling rate is the compile-time STATS_SAMPLE_SHIFT constant; parsed but never read.
+    #[allow(dead_code)]
     pub sample_shift: u32,
     pub ewma_alpha: f64,
     pub minor_drift_ratio: f64,

@@ -120,7 +120,11 @@ fn benign_growth_publishes_boundaries() {
         outcome.high_risk_rate
     );
     assert_eq!(
-        decide_gate(outcome.divergence, /* high_risk_jump */ false, div_threshold),
+        decide_gate(
+            outcome.divergence,
+            /* high_risk_jump */ false,
+            div_threshold
+        ),
         GateState::Normal
     );
 

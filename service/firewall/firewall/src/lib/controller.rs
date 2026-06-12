@@ -87,6 +87,9 @@ impl FirewallController {
         Ok(())
     }
 
+    // Manual block-list admin API; only exercised by the ignored integration
+    // test today (clippy runs without --tests), kept for a future CLI/RPC path.
+    #[allow(dead_code)]
     pub fn block_ip(&mut self, ip: IpAddr) -> anyhow::Result<()> {
         let map = self
             .bpf
@@ -97,6 +100,7 @@ impl FirewallController {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn unblock_ip(&mut self, ip: IpAddr) -> anyhow::Result<()> {
         let map = self
             .bpf
@@ -107,6 +111,7 @@ impl FirewallController {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn list_blocked(&mut self) -> anyhow::Result<Vec<IpAddr>> {
         let map = self
             .bpf
@@ -120,6 +125,7 @@ impl FirewallController {
         Ok(ips)
     }
 
+    #[allow(dead_code)]
     pub fn get_mut_map(&mut self, name: &str) -> Option<&mut Map> {
         self.bpf.map_mut(name)
     }

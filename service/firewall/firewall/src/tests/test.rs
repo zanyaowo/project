@@ -25,8 +25,7 @@ pub async fn test_session_tracking() -> Result<()> {
             let sessions_map = controller
                 .get_mut_map("SESSIONS")
                 .expect("SESSIONS map not found");
-            let mut sessions: HashMap<_, SessionKey, SessionValue> =
-                HashMap::try_from(sessions_map)?;
+            let sessions: HashMap<_, SessionKey, SessionValue> = HashMap::try_from(sessions_map)?;
             for item in sessions.iter() {
                 let (key, value) = item?;
                 println!(
