@@ -1,0 +1,27 @@
+repos:
+  - repo: local
+    hooks:
+      - id: pytest-fast
+        name: pytest (fast, no real data)
+        entry: uv run --project service/model pytest service/model/tests/ -m "not slow" -q
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: check-feature-cols
+        name: FEATURE_COLS count check
+        entry: uv run --project service/model python -c
+          "from service.model.schema import FEATURE_COLS;
+           assert len(FEATURE_COLS) == 26, f'FEATURE_COLS 數量異常：{len(FEATURE_COLS)}（預期 26）'"
+        language: system
+        pass_filenames: false
+        files: "service/model/schema\\.py"
+        stages: [pre-commit]
+
+      - id: import-check
+        name: pipeline import check
+        entry: uv run --project service/model python -c "import service.model.pipeline.infer"
+        language: system
+        pass_filenames: false
+        files: "service/model/pipeline/.*\\.py"
+        stages: [pre-commit]

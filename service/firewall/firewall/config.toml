@@ -1,0 +1,41 @@
+[network]
+interface = "wlp3s0"
+enable_xdp = true
+enable_tc = true
+xdp_mode = "skb" # 根據自身網卡調整 example => "skb", "native"
+
+[security]
+enable_random_secret = true
+# custom_cookie = 11233 如果random 關掉就可以自己指定
+
+[log]
+log_level = "info"
+enable_session_log = false
+
+[maps]
+block_list_size = 1024
+session_table_size = 65536
+event_ring_buffer_size = 4096
+quantile_bound_size = 10   # 2 banks × 5 features（double buffering）
+score_table_size = 32
+model_config_size = 1
+stats_ring_buf_size = 65536
+boundary_meta_size = 1
+
+[model]
+enabled = true
+model_file = "src/data_format/model.json"
+action = "log"
+hot_reload = false
+
+[adaptive]
+enabled = true
+batch_size = 1000           # 每批多少筆才計算分位數
+sample_shift = 4            # kernel 取樣率：1<<4 取 1
+ewma_alpha = 0.20           # EMA 平滑係數
+minor_drift_ratio = 0.20    # Path A：邊界漂移 > 20% 才考慮更新
+major_drift_ratio = 0.50    # > 50% 觸發重訓練通知
+score_drift_ratio = 0.05    # Path B：score p85 漂移 > 5% 才更新 threshold
+divergence_threshold = 0.30 # Δ_t 超過視為顯著偏移
+high_risk_rate_jump = 2.0   # 高風險桶命中率 EWMA 倍數，判定 attack
+boundary_ttl_secs = 600     # eBPF boundary 版本 TTL，逾時回退

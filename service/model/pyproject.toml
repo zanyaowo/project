@@ -1,0 +1,36 @@
+[project]
+name = "ebpf-model"
+version = "0.1.0"
+description = "Isolation Forest anomaly detection for eBPF firewall"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=2.2",
+    "polars>=1.0",
+    "scikit-learn>=1.6",
+    "joblib>=1.4",
+    "matplotlib>=3.9",
+    "missingno>=0.5.2",
+    "pyarrow>=23.0.1",
+]
+
+[project.scripts]
+train-if       = "pipeline.train_if:main"
+infer-if       = "pipeline.infer_if:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["../.."]
+python_files = ["test_*.py", "harness_*.py"]
+markers = [
+    "slow: marks tests requiring real parquet data (deselect with -m 'not slow')",
+    "harness: marks end-to-end harness tests",
+    "regression: marks AUC/FPR regression gates",
+]
+
+[tool.uv]
+package = false

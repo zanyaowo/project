@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+<defs>
+  <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L10,4 L0,8 z" fill="#111"/></marker>
+  <marker id="arrowGrey" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L10,4 L0,8 z" fill="#555"/></marker>
+</defs>
+<style>
+  .bg { fill: #ffffff; }
+  .boundary { fill: #f7f7f7; stroke: #444; stroke-width: 1.5; }
+  .box { fill: #f1f1f1; stroke: #333; stroke-width: 1.5; }
+  .box2 { fill: #ffffff; stroke: #333; stroke-width: 1.4; }
+  .dash { fill: #ffffff; stroke: #555; stroke-width: 1.5; stroke-dasharray: 7 5; }
+  .title { font: 700 20px Arial, 'Noto Sans CJK TC', sans-serif; fill: #111; }
+  .subtitle { font: 400 12px Arial, 'Noto Sans CJK TC', sans-serif; fill: #333; }
+  .label { font: 700 16px Arial, 'Noto Sans CJK TC', sans-serif; fill: #111; }
+  .small { font: 400 12px Arial, 'Noto Sans CJK TC', sans-serif; fill: #222; }
+  .tiny { font: 400 10px Arial, 'Noto Sans CJK TC', sans-serif; fill: #333; }
+  .code { font: 400 12px 'Courier New', monospace; fill: #111; }
+  .arrow { stroke: #111; stroke-width: 2.0; fill: none; marker-end: url(#arrow); }
+  .dasharrow { stroke: #111; stroke-width: 1.8; fill: none; stroke-dasharray: 8 6; marker-end: url(#arrow); }
+  .event { stroke: #555; stroke-width: 1.6; fill: none; stroke-dasharray: 2 6; marker-end: url(#arrowGrey); }
+  .ok { fill: #ecfdf5; stroke: #047857; stroke-width: 1.5; }
+  .drop { fill: #fef2f2; stroke: #b91c1c; stroke-width: 1.5; }
+  .note { fill: #ffffff; stroke: #777; stroke-width: 1.2; stroke-dasharray: 6 5; }
+</style>
+<rect width="1280" height="720" class="bg"/>
+
+<rect x="42" y="76" width="244" height="522" class="boundary"/>
+<text x="62" y="108" text-anchor="start" class="title">離線模型匯出</text>
+<text x="62" y="132" text-anchor="start" class="small">不在執行期封包路徑上</text>
+<rect x="70" y="170" width="168" height="44" class="box2"/><text x="154" y="190" text-anchor="middle" class="small">僅 BENIGN 流量</text><text x="154" y="207" text-anchor="middle" class="small">CIC-IDS-2019</text>
+<line x1="154" y1="214" x2="154" y2="240" class="arrow"/>
+<rect x="70" y="252" width="168" height="44" class="box2"/><text x="154" y="273" text-anchor="middle" class="small">教師模型</text><text x="154" y="290" text-anchor="middle" class="small">Contract5 連續 IF</text>
+<line x1="154" y1="296" x2="154" y2="322" class="arrow"/>
+<rect x="70" y="334" width="168" height="44" class="box2"/><text x="154" y="355" text-anchor="middle" class="small">蒸餾</text><text x="154" y="372" text-anchor="middle" class="small">N=2 分位桶</text>
+<line x1="154" y1="378" x2="154" y2="404" class="arrow"/>
+<rect x="70" y="416" width="168" height="44" class="box2"/><text x="154" y="444" text-anchor="middle" class="code">model.json</text>
+
+<rect x="314" y="76" width="924" height="522" class="boundary"/>
+<text x="334" y="108" text-anchor="start" class="title">執行期主機</text>
+<rect x="334" y="132" width="884" height="188" class="boundary"/>
+<text x="356" y="164" text-anchor="start" class="title">Rust 使用者空間控制面</text>
+<text x="356" y="187" text-anchor="start" class="small">載入參數、記錄事件、把關自適應邊界更新</text>
+<rect x="356" y="224" width="150" height="48" class="box2"/><text x="431" y="244" text-anchor="middle" class="label">載入器</text><text x="431" y="263" text-anchor="middle" class="code">model.json</text>
+<rect x="800" y="224" width="168" height="48" class="box2"/><text x="884" y="244" text-anchor="middle" class="label">統計記錄器</text><text x="884" y="263" text-anchor="middle" class="small">取樣分數事件</text>
+<rect x="1010" y="212" width="174" height="72" class="box2"/><text x="1097" y="234" text-anchor="middle" class="label">邊界更新器</text><text x="1097" y="252" text-anchor="middle" class="small">雙草圖閘控</text><text x="1097" y="268" text-anchor="middle" class="small">Normal / Uncertain /</text><text x="1097" y="282" text-anchor="middle" class="small">AttackFreeze</text>
+
+<rect x="500" y="346" width="360" height="72" class="box"/><text x="680" y="368" text-anchor="middle" class="label">BPF maps</text><text x="680" y="390" text-anchor="middle" class="small">QUANTILE_BOUNDS、SCORE_TABLE、中介資料、黑名單</text>
+<path d="M238 438 H298 V248 H344" class="dasharrow"/><text x="248" y="237" class="tiny">匯出規則</text>
+<path d="M431 272 V366 H496" class="dasharrow"/><text x="436" y="356" class="tiny">載入 maps</text>
+<path d="M1097 284 V380 H864" class="dasharrow"/><text x="1010" y="343" class="tiny">邊界更新</text>
+
+<rect x="334" y="444" width="884" height="124" class="boundary"/>
+<text x="356" y="476" text-anchor="start" class="title">核心 / eBPF 快速路徑</text>
+<rect x="356" y="506" width="104" height="42" class="box2"/><text x="408" y="526" text-anchor="middle" class="label">封包</text><text x="408" y="543" text-anchor="middle" class="small">入口</text>
+<rect x="520" y="494" width="380" height="66" class="box2"/><text x="710" y="516" text-anchor="middle" class="label">XDP 快速路徑</text><text x="710" y="537" text-anchor="middle" class="small">解析、黑名單、SYN 路徑、狀態更新</text><text x="710" y="555" text-anchor="middle" class="small">Contract5 重建、5-bit index、查表評分</text>
+<rect x="950" y="480" width="86" height="38" class="ok"/><text x="993" y="504" text-anchor="middle" class="label">PASS</text>
+<rect x="950" y="536" width="86" height="38" class="drop"/><text x="993" y="560" text-anchor="middle" class="label">DROP</text>
+<rect x="1070" y="494" width="126" height="66" class="dash"/><text x="1133" y="516" text-anchor="middle" class="label">TC 分類器</text><text x="1133" y="537" text-anchor="middle" class="small">擴充掛載點</text><text x="1133" y="555" text-anchor="middle" class="small">未來策略</text>
+<line x1="460" y1="527" x2="510" y2="527" class="arrow"/>
+<path d="M900 520 H940" class="arrow"/>
+<path d="M900 548 H940" class="arrow"/>
+<path d="M900 527 C945 620 1050 620 1133 570" class="dasharrow"/>
+<line x1="680" y1="418" x2="680" y2="486" class="dasharrow"/><text x="694" y="456" class="tiny">查詢參數</text>
+<path d="M884 506 V284" class="event"/><text x="894" y="458" class="tiny">取樣事件</text>
+
+<rect x="42" y="630" width="660" height="48" class="note"/>
+<text x="62" y="651" text-anchor="start" class="label">範圍說明</text>
+<text x="62" y="670" text-anchor="start" class="small">執行期推論為 eBPF 5-bit SCORE_TABLE；完整 IF 僅離線；TC 非目前評分器。</text>
+<rect x="760" y="630" width="478" height="48" class="box2"/>
+<line x1="786" y1="654" x2="828" y2="654" class="arrow"/><text x="840" y="658" text-anchor="start" class="small">封包路徑</text>
+<line x1="970" y1="654" x2="1012" y2="654" class="dasharrow"/><text x="1024" y="658" text-anchor="start" class="small">控制 / map 更新</text>
+<line x1="1158" y1="654" x2="1200" y2="654" class="event"/><text x="1210" y="658" text-anchor="start" class="small">事件</text>
+</svg>

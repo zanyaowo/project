@@ -1,0 +1,9 @@
+flowchart LR
+  packet[Packet ingress] --> xdp[XDP fast path\nparse / block list / SYN path\nsession update\nContract5 reconstruction\n5-bit index + score lookup]
+  xdp --> pass[PASS]
+  xdp --> drop[DROP]
+  xdp -. future extension .-> tc[TC classifier\nextension point / future policy]
+  loader[Rust loader] -. load maps .-> maps[BPF maps\nQUANTILE_BOUNDS + SCORE_TABLE]
+  maps -. lookup parameters .-> xdp
+  xdp -. sampled events .-> logger[Stats logger]
+  updater[Boundary updater] -. boundary update .-> maps

@@ -1,0 +1,132 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L10,4 L0,8 z" fill="#111"/></marker>
+    <marker id="arrowGrey" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L10,4 L0,8 z" fill="#555"/></marker>
+  </defs>
+  <style>
+    .bg{fill:#fff}.box{fill:#f7f7f7;stroke:#333;stroke-width:1.6}.ok{fill:#ecfdf5;stroke:#047857;stroke-width:1.8}.warn{fill:#fff7ed;stroke:#c2410c;stroke-width:1.8}.drop{fill:#fef2f2;stroke:#b91c1c;stroke-width:1.8}.note{fill:#fff;stroke:#777;stroke-width:1.2;stroke-dasharray:7 5}.title{font:700 22px Arial,'Noto Sans CJK TC',sans-serif;fill:#111}.subtitle{font:400 13px Arial,'Noto Sans CJK TC',sans-serif;fill:#333}.label{font:700 15px Arial,'Noto Sans CJK TC',sans-serif;fill:#111}.small{font:400 12px Arial,'Noto Sans CJK TC',sans-serif;fill:#222}.tiny{font:400 11px Arial,'Noto Sans CJK TC',sans-serif;fill:#333}.arrow{stroke:#111;stroke-width:2;fill:none;marker-end:url(#arrow)}.event{stroke:#555;stroke-width:1.6;fill:none;stroke-dasharray:2 6;marker-end:url(#arrowGrey)}
+  </style>
+  <rect width="1280" height="720" class="bg"/>
+  <text x="640" y="42" text-anchor="middle" class="title">執行期 XDP 決策流程</text>
+  <text x="640" y="66" text-anchor="middle" class="subtitle">目前實作的封包路徑（firewall-ebpf/src/main.rs）</text>
+
+  <!-- ===== Row 1 ===== -->
+  <ellipse cx="90" cy="142" rx="66" ry="30" class="box"/>
+  <text x="90" y="147" text-anchor="middle" class="label">封包</text>
+
+  <rect x="196" y="112" width="150" height="60" rx="8" class="box"/>
+  <text x="271" y="136" text-anchor="middle" class="label">parse_packet()</text>
+  <text x="271" y="158" text-anchor="middle" class="small">解析標頭與長度</text>
+
+  <polygon points="472,100 546,142 472,184 398,142" class="warn"/>
+  <text x="472" y="147" text-anchor="middle" class="label">解析成功？</text>
+
+  <rect x="592" y="112" width="148" height="60" rx="8" class="box"/>
+  <text x="666" y="136" text-anchor="middle" class="label">blocklist</text>
+  <text x="666" y="158" text-anchor="middle" class="small">查詢來源 IP</text>
+
+  <polygon points="854,100 928,142 854,184 780,142" class="warn"/>
+  <text x="854" y="147" text-anchor="middle" class="label">命中黑名單？</text>
+
+  <polygon points="1062,100 1142,142 1062,184 982,142" class="box"/>
+  <text x="1062" y="147" text-anchor="middle" class="label">TCP SYN？</text>
+
+  <!-- row1 arrows -->
+  <line x1="156" y1="142" x2="190" y2="142" class="arrow"/>
+  <line x1="346" y1="142" x2="392" y2="142" class="arrow"/>
+  <line x1="546" y1="142" x2="586" y2="142" class="arrow"/>
+  <text x="566" y="132" text-anchor="middle" class="tiny">是</text>
+  <line x1="740" y1="142" x2="774" y2="142" class="arrow"/>
+  <line x1="928" y1="142" x2="976" y2="142" class="arrow"/>
+  <text x="952" y="132" text-anchor="middle" class="tiny">否</text>
+
+  <!-- early exits -->
+  <rect x="400" y="226" width="144" height="54" rx="8" class="drop"/>
+  <text x="472" y="249" text-anchor="middle" class="label">XDP_ABORTED</text>
+  <text x="472" y="269" text-anchor="middle" class="small">解析失敗</text>
+  <path d="M472 184 V222" class="arrow"/>
+  <text x="486" y="206" text-anchor="start" class="tiny">否</text>
+
+  <rect x="782" y="226" width="144" height="54" rx="8" class="drop"/>
+  <text x="854" y="249" text-anchor="middle" class="label">XDP_DROP</text>
+  <text x="854" y="269" text-anchor="middle" class="small">黑名單來源</text>
+  <path d="M854 184 V222" class="arrow"/>
+  <text x="868" y="206" text-anchor="start" class="tiny">是</text>
+
+  <rect x="990" y="226" width="144" height="54" rx="8" class="ok"/>
+  <text x="1062" y="249" text-anchor="middle" class="label">SYN-cookie</text>
+  <text x="1062" y="269" text-anchor="middle" class="small">XDP_TX</text>
+  <path d="M1062 184 V222" class="arrow"/>
+  <text x="1076" y="206" text-anchor="start" class="tiny">是</text>
+
+  <!-- TCP SYN? = no : exit right vertex, route around the right margin down to row 2 -->
+  <path d="M1142 142 H1184 V330 H200 V370" class="arrow"/>
+  <text x="1160" y="134" text-anchor="start" class="tiny">否</text>
+
+  <!-- ===== Row 2 ===== -->
+  <polygon points="200,372 292,416 200,460 108,416" class="box"/>
+  <text x="200" y="421" text-anchor="middle" class="label">TCP ACK？</text>
+
+  <polygon points="428,372 520,416 428,460 336,416" class="warn"/>
+  <text x="428" y="421" text-anchor="middle" class="label">cookie 有效？</text>
+
+  <rect x="580" y="386" width="150" height="60" rx="8" class="box"/>
+  <text x="655" y="410" text-anchor="middle" class="label">update_session()</text>
+  <text x="655" y="431" text-anchor="middle" class="small">更新流狀態</text>
+
+  <rect x="792" y="378" width="184" height="76" rx="8" class="box"/>
+  <text x="884" y="402" text-anchor="middle" class="label">score_session()</text>
+  <text x="884" y="424" text-anchor="middle" class="small">Contract5 → 5-bit index</text>
+  <text x="884" y="443" text-anchor="middle" class="small">查詢 SCORE_TABLE</text>
+
+  <polygon points="1110,368 1194,416 1110,464 1026,416" class="warn"/>
+  <text x="1110" y="421" text-anchor="middle" class="label">分數 ≥ 門檻？</text>
+
+  <!-- row2 arrows -->
+  <line x1="292" y1="416" x2="334" y2="416" class="arrow"/>
+  <text x="313" y="406" text-anchor="middle" class="tiny">是</text>
+  <line x1="520" y1="416" x2="574" y2="416" class="arrow"/>
+  <text x="547" y="406" text-anchor="middle" class="tiny">是</text>
+  <line x1="730" y1="416" x2="788" y2="416" class="arrow"/>
+  <line x1="976" y1="416" x2="1022" y2="416" class="arrow"/>
+
+  <!-- TCP ACK? = no -> update_session (bottom) -->
+  <path d="M200 460 V490 H655 V448" class="arrow"/>
+  <text x="216" y="482" text-anchor="start" class="tiny">否</text>
+
+  <!-- cookie valid? = no -> XDP_DROP -->
+  <rect x="356" y="520" width="144" height="54" rx="8" class="drop"/>
+  <text x="428" y="543" text-anchor="middle" class="label">XDP_DROP</text>
+  <text x="428" y="563" text-anchor="middle" class="small">無效 ACK</text>
+  <path d="M428 460 V514" class="arrow"/>
+  <text x="442" y="486" text-anchor="start" class="tiny">否</text>
+
+  <!-- score >= threshold? = yes -> XDP_DROP -->
+  <rect x="1040" y="540" width="144" height="54" rx="8" class="drop"/>
+  <text x="1112" y="563" text-anchor="middle" class="label">XDP_DROP</text>
+  <text x="1112" y="583" text-anchor="middle" class="small">count_drop()</text>
+  <path d="M1110 464 V530" class="arrow"/>
+  <text x="1124" y="500" text-anchor="start" class="tiny">是</text>
+
+  <!-- score >= threshold? = no -> submit_event -->
+  <rect x="786" y="540" width="156" height="54" rx="8" class="box"/>
+  <text x="864" y="563" text-anchor="middle" class="label">submit_event()</text>
+  <text x="864" y="583" text-anchor="middle" class="small">取樣 StatsEvent</text>
+  <path d="M1088 452 V496 H864 V534" class="arrow"/>
+  <text x="1098" y="474" text-anchor="start" class="tiny">否</text>
+
+  <rect x="786" y="626" width="156" height="50" rx="8" class="ok"/>
+  <text x="864" y="656" text-anchor="middle" class="label">XDP_PASS</text>
+  <line x1="864" y1="594" x2="864" y2="622" class="arrow"/>
+
+  <rect x="1008" y="626" width="174" height="50" rx="8" class="box"/>
+  <text x="1095" y="648" text-anchor="middle" class="label">Stats logger</text>
+  <text x="1095" y="668" text-anchor="middle" class="small">使用者空間</text>
+  <line x1="942" y1="567" x2="1004" y2="648" class="event"/>
+  <text x="978" y="612" text-anchor="middle" class="tiny">ring buffer</text>
+
+  <!-- note -->
+  <rect x="64" y="600" width="560" height="58" rx="8" class="note"/>
+  <text x="86" y="624" text-anchor="start" class="small">目前實測的執行期動作為 PASS 或 DROP。</text>
+  <text x="86" y="646" text-anchor="start" class="small">MONITOR／RATE_LIMIT 為未來「分數對應動作」策略的擴充點。</text>
+</svg>

@@ -1,15 +1,20 @@
-# IDE & Editor Specific
+# IDE & Editor
 .idea/
 .vscode/
 .DS_Store
 Desktop.ini
+*.swp
+*.swo
 
-# Language & Framework Specific Artifacts
-
-## Rust / Cargo
+# Rust / Cargo
 **/target/
+**/target_tmp/
 
-## Python
+# eBPF compiled objects
+*.o
+*.bpf.o
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
@@ -20,7 +25,7 @@ env/
 .pytest_cache/
 .coverage
 
-## Node.js / npm / Astro
+# Node.js
 **/node_modules/
 .astro/
 dist/
@@ -29,7 +34,36 @@ npm-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# General & Project Specific
+# Secrets & local config overrides
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+
+# OS
+Thumbs.db
+
+# dataset
+dataset
+
+# on-hardware benchmark output (machine-specific)
+bench_results/
+
+# LaTeX build artifacts (report/；圖檔在 report/figures/ 不受影響)
+report/*.aux
+report/*.fdb_latexmk
+report/*.fls
+report/*.log
+report/*.out
+report/*.toc
+report/*.lof
+report/*.lot
+report/*.xdv
+report/*.bbl
+report/*.blg
+report/*.synctex.gz
+report/*.nav
+report/*.snm
+report/*.vrb
+report/*.bak

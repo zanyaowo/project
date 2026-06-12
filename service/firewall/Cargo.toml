@@ -1,17 +1,22 @@
-[package]
-name = "ebpf-firewall"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-aya = "0.13.1"
-
 [workspace]
 members = ["xtask", "firewall-ebpf", "firewall", "firewall-common"]
-
 resolver = "2"
 
+# eBPF 需要 opt-level=3：opt-level=0 產出的程式碼會被 verifier 拒絕
+# （`last insn is not an exit or jmp`）。dev/release 都必須最佳化 + LTO。
+[profile.dev]
+opt-level = 3
+debug = false
+debug-assertions = false
+overflow-checks = false
+lto = true
+panic = "abort"
+incremental = false
+codegen-units = 1
+rpath = false
 
-[[bin]]
-name = "entry"
-path = "firewall/src/main.rs"
+[profile.release]
+lto = true
+panic = "abort"
+codegen-units = 1
+incremental = false

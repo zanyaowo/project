@@ -1,0 +1,95 @@
+IFACE ?= wlp3s0
+CARGO := cargo
+
+.PHONY: help clean build-ebpf build-ebpf-debug test run-firewall run-firewall-debug run-test clean-tc bpftool-maps verify-load verify-packets verify-boundary verify-blocklist bench-setup bench-throughput bench-maplat bench-mitigation bench
+
+help:  ## Show this help message
+	@echo "Available commands:"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+
+build-ebpf: ## Build eBPF bytecode (release)
+	@echo "Building eBPF (release)..."
+	cd service/firewall && $(CARGO) +nightly build --package firewall-ebpf --target bpfel-unknown-none -Z build-std=core --release
+
+build-ebpf-debug: ## Build eBPF bytecode (debug)
+	@echo "Building eBPF (debug)..."
+	cd service/firewall && $(CARGO) +nightly build --package firewall-ebpf --target bpfel-unknown-none -Z build-std=core
+
+clean: ## Remove build artifacts
+	@echo "Cleaning..."
+	rm -rf service/firewall/target
+
+FIREWALL_BPF_RELEASE := $(abspath service/firewall/target/bpfel-unknown-none/release/firewall-ebpf)
+FIREWALL_BPF_DEBUG   := $(abspath service/firewall/target/bpfel-unknown-none/debug/firewall-ebpf)
+
+test: build-ebpf-debug ## Run unit tests (no root needed)
+	@echo "Running unit tests..."
+	cd service/firewall && FIREWALL_BPF=$(FIREWALL_BPF_DEBUG) $(CARGO) test --package firewall
+
+FIREWALL_BIN_RELEASE := $(abspath service/firewall/target/release/firewall)
+FIREWALL_BIN_DEBUG   := $(abspath service/firewall/target/debug/firewall)
+
+run-firewall: build-ebpf ## Build (release) and run firewall [IFACE=wlp3s0]
+	@echo "Building userspace (release)..."
+	cd service/firewall && FIREWALL_BPF=$(FIREWALL_BPF_RELEASE) $(CARGO) build --package firewall --release
+	@echo "Running firewall on $(IFACE)..."
+	cd service/firewall/firewall && sudo env "PATH=$(PATH)" $(FIREWALL_BIN_RELEASE) --iface $(IFACE)
+
+run-firewall-debug: build-ebpf-debug ## Build (debug) and run firewall [IFACE=wlp3s0]
+	@echo "Building userspace (debug)..."
+	cd service/firewall && FIREWALL_BPF=$(FIREWALL_BPF_DEBUG) $(CARGO) build --package firewall
+	@echo "Running firewall (debug) on $(IFACE)..."
+	cd service/firewall/firewall && sudo env "PATH=$(PATH)" $(FIREWALL_BIN_DEBUG) --iface $(IFACE)
+
+run-test: ## Run session tracking integration test (requires root + NIC)
+	@echo "Running session tracking test (requires root + NIC)..."
+	cd service/firewall && FIREWALL_BPF=$(FIREWALL_BPF_DEBUG) sudo env "PATH=$(PATH)" \
+		$(CARGO) test --package firewall -- tests::test::test_session_tracking --nocapture --ignored
+
+clean-tc: ## Remove leftover clsact qdisc after a forced kill [IFACE=wlp3s0]
+	@echo "Removing clsact qdisc on $(IFACE)..."
+	sudo tc qdisc del dev $(IFACE) clsact 2>/dev/null || true
+
+bpftool-maps: ## Dump all loaded BPF map contents for debugging
+	@echo "BPF maps:"
+	sudo bpftool map show
+	@echo ""
+	@echo "SCORE_TABLE:"
+	sudo bpftool map dump name SCORE_TABLE 2>/dev/null || echo "  (not loaded)"
+	@echo "QUANTILE_BOUNDS:"
+	sudo bpftool map dump name QUANTILE_BOUNDS 2>/dev/null || echo "  (not loaded)"
+	@echo "BLOCK_LIST:"
+	sudo bpftool map dump name BLOCK_LIST 2>/dev/null || echo "  (not loaded)"
+
+# --- Runtime validation (firewall must already be running in another terminal) ---
+VALIDATE := scripts/validate_runtime.sh
+
+verify-load: ## Check XDP/TC attached + maps loaded [IFACE=wlp3s0]
+	sudo IFACE=$(IFACE) $(VALIDATE) load
+
+verify-packets: ## Drive traffic -> inspect SCORE_TABLE/SESSIONS [IFACE=wlp3s0]
+	sudo IFACE=$(IFACE) $(VALIDATE) packets $(IFACE)
+
+verify-boundary: ## Flood -> AttackFreeze / BOUNDARY_META.version freeze [IFACE=wlp3s0]
+	sudo IFACE=$(IFACE) $(VALIDATE) boundary $(IFACE)
+
+verify-blocklist: ## Write BLOCK_LIST key -> confirm DROP [IFACE=wlp3s0 IP=1.2.3.4]
+	sudo IFACE=$(IFACE) $(VALIDATE) blocklist $(IFACE) $(IP)
+
+# --- Benchmark harness (Table 2 / E4; on-hardware, see scripts/bench/README.md) ---
+BENCH := scripts/bench
+
+bench-setup: ## Probe caps + set up testbed [IFACE=wlp3s0 MODE=loopback|veth|dual]
+	sudo IFACE=$(IFACE) MODE=$(or $(MODE),loopback) $(BENCH)/setup_testbed.sh setup
+
+bench-throughput: ## pps + CPU% per mitigation group [GROUP=ebpf-bucket|no-mitigation|static-blocklist|userspace-IF|all]
+	sudo IFACE=$(IFACE) $(BENCH)/throughput.sh $(or $(GROUP),all)
+
+bench-maplat: ## eBPF prog/map lookup latency (ns) [IFACE=wlp3s0]
+	sudo IFACE=$(IFACE) $(BENCH)/map_latency.sh $(IFACE)
+
+bench-mitigation: ## detect->DROP end-to-end latency (µs) [IFACE=wlp3s0 REPS=10]
+	sudo IFACE=$(IFACE) $(BENCH)/mitigation_latency.sh $(IFACE)
+
+bench: bench-throughput bench-maplat bench-mitigation ## Run full bench suite (firewall must be running)
+	@echo "Results -> bench_results/table2.md"

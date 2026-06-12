@@ -1,0 +1,138 @@
+// Data Plane — 封包流與 eBPF Map 讀寫
+// 重點：NIC → XDP → TC → App，以及 Map 的 kernel 側讀寫
+digraph data_plane {
+  compound=true;
+  rankdir=LR;
+  splines=ortho;
+  nodesep=0.5;
+  ranksep=1.0;
+  fontname="Helvetica";
+  node [fontname="Helvetica", fontsize=11, margin="0.2,0.1"];
+  edge [fontname="Helvetica", fontsize=9];
+
+  // ── 網路 ──────────────────────────────────────────────
+  subgraph cluster_net {
+    label="網路層";
+    style=filled; fillcolor="#ecf0f1"; color="#7f8c8d";
+    fontsize=13; fontcolor="#2c3e50";
+    rank=source;
+
+    nic [label="Network Interface\n(eth0 / wlp3s0)", shape=cylinder,
+         style=filled, fillcolor="#bdc3c7"];
+    kstack [label="Linux\nNetwork Stack", shape=box,
+            style=filled, fillcolor="#bdc3c7"];
+    app   [label="Application\n(Socket)", shape=box,
+           style=filled, fillcolor="#bdc3c7"];
+  }
+
+  // ── Kernel Space：eBPF ────────────────────────────────
+  subgraph cluster_ebpf {
+    label="Kernel Space — firewall-ebpf";
+    style=filled; fillcolor="#fdecea"; color="#c0392b";
+    fontsize=13; fontcolor="#c0392b";
+
+    // XDP
+    subgraph cluster_xdp {
+      label="XDP  (ingress RX)";
+      style=filled; fillcolor="#fad7d3"; color="#e74c3c";
+
+      xdp    [label="xdp_firewall", shape=box,
+              style="filled,bold", fillcolor="#e74c3c", fontcolor=white];
+      xparse [label="parse_packet()\n→ PacketInfo", shape=box,
+              style=filled, fillcolor="#f1948a"];
+      xsyn   [label="SYN Cookie\n(SYN flood defense)", shape=box,
+              style=filled, fillcolor="#f5b7b1"];
+      xblock [label="is_blocked(src_ip)", shape=box,
+              style=filled, fillcolor="#f1948a"];
+      xtable [label="update_session()\n→ SESSIONS R/W", shape=box,
+              style=filled, fillcolor="#f1948a"];
+      xcol   [label="submit_event()\n→ EVENTS_POOL write", shape=box,
+              style=filled, fillcolor="#f1948a"];
+
+      xdp    -> xparse;
+      xparse -> xsyn   [label="TCP SYN", color="#9b59b6"];
+      xparse -> xblock;
+      xblock -> xtable [label="pass", color="#27ae60"];
+      xtable -> xcol;
+    }
+
+    // TC
+    subgraph cluster_tc {
+      label="TC Egress  (egress TX)";
+      style=filled; fillcolor="#fad7d3"; color="#e74c3c";
+
+      tc     [label="tc_egress", shape=box,
+              style="filled,bold", fillcolor="#e74c3c", fontcolor=white];
+      tcparse[label="parse_packet()\n→ PacketInfo", shape=box,
+              style=filled, fillcolor="#f1948a"];
+      tcblock[label="is_blocked(dst_ip)", shape=box,
+              style=filled, fillcolor="#f1948a"];
+      tctable[label="update_session()\n→ SESSIONS R/W", shape=box,
+              style=filled, fillcolor="#f1948a"];
+
+      tc     -> tcparse;
+      tcparse -> tcblock;
+      tcblock -> tctable [label="pass", color="#27ae60"];
+    }
+  }
+
+  // ── eBPF Maps ─────────────────────────────────────────
+  subgraph cluster_maps {
+    label="eBPF Maps  (Kernel ↔ Userspace Shared Memory)";
+    style=filled; fillcolor="#eafaf1"; color="#27ae60";
+    fontsize=13; fontcolor="#1a5e34";
+
+    msess  [label="SESSIONS\nLruPerCpuHashMap\nSessionKey → SessionValue\n65536 entries",
+            shape=cylinder, style=filled, fillcolor="#6abe75"];
+    mevt   [label="EVENTS_POOL\nRingBuf\nSessionEvent\n4096 bytes",
+            shape=cylinder, style=filled, fillcolor="#6abe75"];
+    mblock [label="BLOCK_LIST\nHashMap\nIP → u32  (1024)",
+            shape=cylinder, style=filled, fillcolor="#6abe75"];
+    msec   [label="SECRET_KEY\nArray<u32>",
+            shape=cylinder, style=filled, fillcolor="#6abe75"];
+    mdrop  [label="DROP_EVENTS\nPerCpuArray<u64>",
+            shape=cylinder, style=filled, fillcolor="#abebc6"];
+  }
+
+  // ── Userspace（精簡版，重點在 poll/lookup）────────────
+  subgraph cluster_us {
+    label="Userspace — firewall";
+    style=filled; fillcolor="#eaf2fb"; color="#2980b9";
+    fontsize=13; fontcolor="#1a4e7a";
+
+    logger [label="Logger\nlogger.rs\naggregate_per_cpu()\nbuild_feature() → ModelFeature",
+            shape=box, style=filled, fillcolor="#7ea6d6"];
+    ctrl   [label="FirewallController\ncontroller.rs",
+            shape=box, style=filled, fillcolor="#7ea6d6"];
+  }
+
+  // ══ 封包流（粗線 / 有色）════════════════════════════
+  // Ingress RX
+  nic    -> xdp    [label="  RX packet", color="#e74c3c", penwidth=2.5];
+  xsyn   -> nic    [label="XDP_TX\n(SYN-ACK)", color="#9b59b6",
+                    style=dashed, penwidth=1.5];
+  xcol   -> kstack [label="XDP_PASS", color="#27ae60", penwidth=2];
+  kstack -> app    [color="#7f8c8d"];
+
+  // Egress TX
+  app    -> tc     [label="TX packet  ", color="#2980b9",
+                    style=dashed, penwidth=2];
+  tctable -> nic   [label="TC_ACT_OK", color="#27ae60",
+                    style=dashed, penwidth=1.5];
+
+  // ══ Map 讀寫（kernel 側）════════════════════════════
+  xtable  -> msess  [label="R/W", color="#27ae60"];
+  tctable -> msess  [label="R/W", color="#27ae60"];
+  xcol    -> mevt   [label="write", color="#27ae60"];
+  xcol    -> mdrop  [label="inc (full)", color="#c0392b", style=dashed];
+  xblock  -> mblock [label="read",  color="#c0392b"];
+  tcblock -> mblock [label="read",  color="#c0392b"];
+  xsyn    -> msec   [label="read",  color="#9b59b6"];
+
+  // ══ Userspace ↔ Maps ════════════════════════════════
+  logger -> mevt  [label="poll (AsyncFd)", color="#2980b9",
+                   dir=both, penwidth=1.5];
+  logger -> msess [label="lookup", color="#2980b9"];
+  ctrl   -> mblock [label="write rules", color="#2980b9"];
+  ctrl   -> msec   [label="init secret", color="#2980b9"];
+}

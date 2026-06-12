@@ -1,0 +1,40 @@
+{
+  "scope": "CIC-DDoS2019 only",
+  "eval_rows": 48439,
+  "train_rows": 10000,
+  "op_point": "FPR<=0.01",
+  "detection": {
+    "teacher_contract5_continuous_FINAL": {
+      "roc_auc": 0.8453359942843,
+      "pr_auc": 0.9843357703153954,
+      "precision": 0.9872754491017964,
+      "recall": 0.05936227187830509,
+      "f1": 0.11199083016705229,
+      "fpr": 0.0085,
+      "fnr": 0.9406377281216949
+    },
+    "baseline_abs20": {
+      "roc_auc": 0.8918864679673258,
+      "pr_auc": 0.9834073108766213,
+      "precision": 0.9912910951447855,
+      "recall": 0.10245505074371611,
+      "f1": 0.18571545113395335,
+      "fpr": 0.01,
+      "fnr": 0.8975449492562839
+    },
+    "student_binarized_32entry": {
+      "roc_auc": 0.8965653480051307,
+      "pr_auc": 0.9895560522454437,
+      "precision": 0.9992604158106665,
+      "recall": 0.820900560318639,
+      "f1": 0.9013416351641835,
+      "fpr": 0.00675,
+      "fnr": 0.17909943968136097
+    }
+  },
+  "latency_us_per_flow": {
+    "contract5_if_inference": 5948.194931499984,
+    "contract_lookup_userspace_proxy": 33.60601149995546,
+    "speedup": 176.99794370146745
+  }
+}
