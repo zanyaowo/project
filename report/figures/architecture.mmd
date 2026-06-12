@@ -1,40 +1,9 @@
-flowchart TD
-  packet["Packet / Flow Input"]
-
-  subgraph xdp["XDP Fast Path"]
-    parse["Parse packet"]
-    block["BLOCK_LIST check"]
-    syn["SYN-cookie path\nfor SYN flood"]
-    sess["Session update\nper-flow statistics"]
-  end
-
-  subgraph tc["TC Scorer"]
-    feat["Contract5 feature reconstruction\nprotocol, pkt_len_mean, fwd_max_q, sym_ratio, pkt_cv_sq"]
-    bucket["Quantile boundary comparison\n5 bucket bits"]
-    score["32-entry SCORE_TABLE lookup"]
-  end
-
-  action{"Action"}
-  pass["PASS / MONITOR"]
-  mitigate["RATE_LIMIT / DROP"]
-
-  subgraph userspace["Rust Userspace Control Plane"]
-    loader["Model loader\nmodel.json -> BPF maps"]
-    logger["StatsEvent logger"]
-    sketches["S_ref / S_live dual-sketch"]
-    gate{"GateState\nNormal / Uncertain / AttackFreeze"}
-    update["Versioned double-buffer update\nQUANTILE_BOUNDS / metadata"]
-  end
-
-  packet --> parse --> block
-  block -->|blocked| mitigate
-  block -->|TCP SYN| syn --> action
-  block -->|pass| sess --> feat --> bucket --> score --> action
-  action -->|low / medium risk| pass
-  action -->|high risk| mitigate
-
-  score -->|StatsEvent sampling| logger --> sketches --> gate
-  gate -->|Normal drift| update --> bucket
-  gate -->|Attack contamination| freeze["Freeze reference boundary"]
-  loader --> score
-  loader --> bucket
+flowchart LR
+  packet[Packet ingress] --> xdp[XDP fast path\nparse / block list / SYN path\nsession update\nContract5 reconstruction\n5-bit index + score lookup]
+  xdp --> pass[PASS]
+  xdp --> drop[DROP]
+  xdp -. future extension .-> tc[TC classifier\nextension point / future policy]
+  loader[Rust loader] -. load maps .-> maps[BPF maps\nQUANTILE_BOUNDS + SCORE_TABLE]
+  maps -. lookup parameters .-> xdp
+  xdp -. sampled events .-> logger[Stats logger]
+  updater[Boundary updater] -. boundary update .-> maps

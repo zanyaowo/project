@@ -49,3 +49,21 @@ dataset
 
 # on-hardware benchmark output (machine-specific)
 bench_results/
+
+# LaTeX build artifacts (report/；圖檔在 report/figures/ 不受影響)
+report/*.aux
+report/*.fdb_latexmk
+report/*.fls
+report/*.log
+report/*.out
+report/*.toc
+report/*.lof
+report/*.lot
+report/*.xdv
+report/*.bbl
+report/*.blg
+report/*.synctex.gz
+report/*.nav
+report/*.snm
+report/*.vrb
+report/*.bak

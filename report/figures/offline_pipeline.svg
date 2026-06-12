@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L10,4 L0,8 z" fill="#111"/></marker>
+  </defs>
+  <style>
+    .bg{fill:#fff}.box{fill:#f7f7f7;stroke:#333;stroke-width:1.6}.green{fill:#ecfdf5;stroke:#047857;stroke-width:1.8}.orange{fill:#fff7ed;stroke:#c2410c;stroke-width:1.6}.lane{fill:#fafafa;stroke:#777;stroke-width:1.3;stroke-dasharray:7 5}.title{font:700 22px Arial,'Noto Sans CJK TC',sans-serif;fill:#111}.subtitle{font:400 13px Arial,'Noto Sans CJK TC',sans-serif;fill:#333}.label{font:700 16px Arial,'Noto Sans CJK TC',sans-serif;fill:#111}.small{font:400 12px Arial,'Noto Sans CJK TC',sans-serif;fill:#222}.tiny{font:400 10px Arial,'Noto Sans CJK TC',sans-serif;fill:#333}.arrow{stroke:#111;stroke-width:2;fill:none;marker-end:url(#arrow)}.dasharrow{stroke:#111;stroke-width:1.8;fill:none;stroke-dasharray:8 6;marker-end:url(#arrow)}
+  </style>
+  <rect width="1280" height="720" class="bg"/>
+  <text x="640" y="42" text-anchor="middle" class="title">離線訓練與蒸餾流程</text>
+  <text x="640" y="66" text-anchor="middle" class="subtitle">僅 BENIGN 資料 → Contract5 教師 → N=2 分位桶 → model.json → BPF maps</text>
+
+  <rect x="56" y="112" width="1168" height="214" rx="12" class="lane"/>
+  <text x="80" y="139" text-anchor="start" class="label">離線模型建構</text>
+
+  <rect x="90" y="176" width="150" height="66" rx="8" class="box"/>
+  <text x="165" y="201" text-anchor="middle" class="label">CIC-DDoS2019</text>
+  <text x="165" y="222" text-anchor="middle" class="small">03-11 僅 BENIGN</text>
+
+  <rect x="296" y="176" width="156" height="66" rx="8" class="box"/>
+  <text x="374" y="201" text-anchor="middle" class="label">Contract5</text>
+  <text x="374" y="222" text-anchor="middle" class="small">特徵萃取</text>
+
+  <rect x="508" y="176" width="178" height="66" rx="8" class="box"/>
+  <text x="597" y="201" text-anchor="middle" class="label">連續教師模型</text>
+  <text x="597" y="222" text-anchor="middle" class="small">Isolation Forest 參考</text>
+
+  <rect x="742" y="176" width="170" height="66" rx="8" class="box"/>
+  <text x="827" y="201" text-anchor="middle" class="label">N=2 分位桶</text>
+  <text x="827" y="222" text-anchor="middle" class="small">5 個二值特徵位元</text>
+
+  <rect x="968" y="176" width="176" height="66" rx="8" class="green"/>
+  <text x="1056" y="201" text-anchor="middle" class="label">score_table[32]</text>
+  <text x="1056" y="222" text-anchor="middle" class="small">門檻 + 特徵順序</text>
+
+  <line x1="240" y1="209" x2="286" y2="209" class="arrow"/>
+  <line x1="452" y1="209" x2="498" y2="209" class="arrow"/>
+  <line x1="686" y1="209" x2="732" y2="209" class="arrow"/>
+  <line x1="912" y1="209" x2="958" y2="209" class="arrow"/>
+
+  <rect x="56" y="390" width="1168" height="178" rx="12" class="lane"/>
+  <text x="80" y="417" text-anchor="start" class="label">部署路徑</text>
+
+  <rect x="218" y="456" width="170" height="66" rx="8" class="box"/>
+  <text x="303" y="481" text-anchor="middle" class="label">model.json</text>
+  <text x="303" y="502" text-anchor="middle" class="small">可攜式 contract</text>
+
+  <rect x="500" y="456" width="190" height="66" rx="8" class="box"/>
+  <text x="595" y="481" text-anchor="middle" class="label">Rust 載入器</text>
+  <text x="595" y="502" text-anchor="middle" class="small">驗證中介資料</text>
+
+  <rect x="804" y="456" width="236" height="66" rx="8" class="green"/>
+  <text x="922" y="481" text-anchor="middle" class="label">BPF maps</text>
+  <text x="922" y="502" text-anchor="middle" class="small">QUANTILE_BOUNDS + SCORE_TABLE</text>
+
+  <path d="M1056 242 V336 H303 V446" class="dasharrow"/>
+  <text x="674" y="354" text-anchor="middle" class="tiny">匯出部署規則</text>
+  <line x1="388" y1="489" x2="490" y2="489" class="arrow"/>
+  <line x1="690" y1="489" x2="794" y2="489" class="arrow"/>
+
+  <rect x="164" y="608" width="952" height="64" rx="8" class="orange"/>
+  <text x="640" y="633" text-anchor="middle" class="small">邊界：完整 Isolation Forest 僅離線；執行期推論使用 5-bit index + 32-entry SCORE_TABLE。</text>
+  <text x="640" y="654" text-anchor="middle" class="small">BigFlow / HOIC / LOIC-HTTP 為限制檢查，非主要成功標準。</text>
+</svg>

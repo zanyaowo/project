@@ -1,145 +1,73 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
-  <title id="title">System architecture of the eBPF DDoS defense</title>
-  <desc id="desc">A thesis-style architecture diagram separating offline model export, Rust userspace control, BPF maps, and the eBPF kernel data path.</desc>
-  <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
-      <path d="M0,0 L10,5 L0,10 z" fill="#1d1d1d"/>
-    </marker>
-    <marker id="arrow-gray" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
-      <path d="M0,0 L10,5 L0,10 z" fill="#555555"/>
-    </marker>
-    <style>
-      .bg { fill: #ffffff; }
-      .outer { fill: #ffffff; stroke: #222222; stroke-width: 1.7; }
-      .partition { fill: #f8f8f8; stroke: #555555; stroke-width: 1.3; }
-      .external { fill: #fbfbfb; stroke: #444444; stroke-width: 1.5; }
-      .box { fill: #ffffff; stroke: #222222; stroke-width: 1.5; }
-      .box-gray { fill: #f2f2f2; stroke: #222222; stroke-width: 1.5; }
-      .box-dashed { fill: #ffffff; stroke: #666666; stroke-width: 1.4; stroke-dasharray: 7 5; }
-      .label { font: 700 20px Arial, "Noto Sans TC", sans-serif; fill: #111111; }
-      .title { font: 700 17px Arial, "Noto Sans TC", sans-serif; fill: #111111; }
-      .text { font: 500 14px Arial, "Noto Sans TC", sans-serif; fill: #222222; }
-      .small { font: 500 12.5px Arial, "Noto Sans TC", sans-serif; fill: #333333; }
-      .mono { font: 500 12.5px Menlo, Consolas, monospace; fill: #222222; }
-      .flow { fill: none; stroke: #1d1d1d; stroke-width: 2; marker-end: url(#arrow); }
-      .control { fill: none; stroke: #1d1d1d; stroke-width: 1.8; stroke-dasharray: 8 6; marker-end: url(#arrow); }
-      .event { fill: none; stroke: #555555; stroke-width: 1.6; stroke-dasharray: 2 5; marker-end: url(#arrow-gray); }
-      .muted { fill: none; stroke: #555555; stroke-width: 1.6; marker-end: url(#arrow-gray); }
-      .legend-line { stroke: #1d1d1d; stroke-width: 2; }
-      .legend-dash { stroke: #1d1d1d; stroke-width: 1.8; stroke-dasharray: 8 6; }
-      .legend-dot { stroke: #555555; stroke-width: 1.6; stroke-dasharray: 2 5; }
-    </style>
-  </defs>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+<defs>
+  <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L10,4 L0,8 z" fill="#111"/></marker>
+  <marker id="arrowGrey" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L10,4 L0,8 z" fill="#555"/></marker>
+</defs>
+<style>
+  .bg { fill: #ffffff; }
+  .boundary { fill: #f7f7f7; stroke: #444; stroke-width: 1.5; }
+  .box { fill: #f1f1f1; stroke: #333; stroke-width: 1.5; }
+  .box2 { fill: #ffffff; stroke: #333; stroke-width: 1.4; }
+  .dash { fill: #ffffff; stroke: #555; stroke-width: 1.5; stroke-dasharray: 7 5; }
+  .title { font: 700 20px Arial, 'Noto Sans CJK TC', sans-serif; fill: #111; }
+  .subtitle { font: 400 12px Arial, 'Noto Sans CJK TC', sans-serif; fill: #333; }
+  .label { font: 700 16px Arial, 'Noto Sans CJK TC', sans-serif; fill: #111; }
+  .small { font: 400 12px Arial, 'Noto Sans CJK TC', sans-serif; fill: #222; }
+  .tiny { font: 400 10px Arial, 'Noto Sans CJK TC', sans-serif; fill: #333; }
+  .code { font: 400 12px 'Courier New', monospace; fill: #111; }
+  .arrow { stroke: #111; stroke-width: 2.0; fill: none; marker-end: url(#arrow); }
+  .dasharrow { stroke: #111; stroke-width: 1.8; fill: none; stroke-dasharray: 8 6; marker-end: url(#arrow); }
+  .event { stroke: #555; stroke-width: 1.6; fill: none; stroke-dasharray: 2 6; marker-end: url(#arrowGrey); }
+  .ok { fill: #ecfdf5; stroke: #047857; stroke-width: 1.5; }
+  .drop { fill: #fef2f2; stroke: #b91c1c; stroke-width: 1.5; }
+  .note { fill: #ffffff; stroke: #777; stroke-width: 1.2; stroke-dasharray: 6 5; }
+</style>
+<rect width="1280" height="720" class="bg"/>
 
-  <rect class="bg" width="1280" height="720"/>
+<rect x="42" y="76" width="244" height="522" class="boundary"/>
+<text x="62" y="108" text-anchor="start" class="title">離線模型匯出</text>
+<text x="62" y="132" text-anchor="start" class="small">不在執行期封包路徑上</text>
+<rect x="70" y="170" width="168" height="44" class="box2"/><text x="154" y="190" text-anchor="middle" class="small">僅 BENIGN 流量</text><text x="154" y="207" text-anchor="middle" class="small">CIC-IDS-2019</text>
+<line x1="154" y1="214" x2="154" y2="240" class="arrow"/>
+<rect x="70" y="252" width="168" height="44" class="box2"/><text x="154" y="273" text-anchor="middle" class="small">教師模型</text><text x="154" y="290" text-anchor="middle" class="small">Contract5 連續 IF</text>
+<line x1="154" y1="296" x2="154" y2="322" class="arrow"/>
+<rect x="70" y="334" width="168" height="44" class="box2"/><text x="154" y="355" text-anchor="middle" class="small">蒸餾</text><text x="154" y="372" text-anchor="middle" class="small">N=2 分位桶</text>
+<line x1="154" y1="378" x2="154" y2="404" class="arrow"/>
+<rect x="70" y="416" width="168" height="44" class="box2"/><text x="154" y="444" text-anchor="middle" class="code">model.json</text>
 
-  <!-- Offline model export, kept outside the runtime host boundary. -->
-  <rect x="42" y="76" width="224" height="522" class="external"/>
-  <text x="62" y="108" class="label">Offline model export</text>
-  <text x="62" y="132" class="small">not on runtime packet path</text>
+<rect x="314" y="76" width="924" height="522" class="boundary"/>
+<text x="334" y="108" text-anchor="start" class="title">執行期主機</text>
+<rect x="334" y="132" width="884" height="188" class="boundary"/>
+<text x="356" y="164" text-anchor="start" class="title">Rust 使用者空間控制面</text>
+<text x="356" y="187" text-anchor="start" class="small">載入參數、記錄事件、把關自適應邊界更新</text>
+<rect x="356" y="224" width="150" height="48" class="box2"/><text x="431" y="244" text-anchor="middle" class="label">載入器</text><text x="431" y="263" text-anchor="middle" class="code">model.json</text>
+<rect x="800" y="224" width="168" height="48" class="box2"/><text x="884" y="244" text-anchor="middle" class="label">統計記錄器</text><text x="884" y="263" text-anchor="middle" class="small">取樣分數事件</text>
+<rect x="1010" y="212" width="174" height="72" class="box2"/><text x="1097" y="234" text-anchor="middle" class="label">邊界更新器</text><text x="1097" y="252" text-anchor="middle" class="small">雙草圖閘控</text><text x="1097" y="268" text-anchor="middle" class="small">Normal / Uncertain /</text><text x="1097" y="282" text-anchor="middle" class="small">AttackFreeze</text>
 
-  <rect x="70" y="170" width="168" height="44" class="box-gray"/>
-  <text x="154" y="188" text-anchor="middle" class="text">BENIGN-only</text>
-  <text x="154" y="207" text-anchor="middle" class="small">CIC-IDS-2019</text>
+<rect x="500" y="346" width="360" height="72" class="box"/><text x="680" y="368" text-anchor="middle" class="label">BPF maps</text><text x="680" y="390" text-anchor="middle" class="small">QUANTILE_BOUNDS、SCORE_TABLE、中介資料、黑名單</text>
+<path d="M238 438 H298 V248 H344" class="dasharrow"/><text x="248" y="237" class="tiny">匯出規則</text>
+<path d="M431 272 V366 H496" class="dasharrow"/><text x="436" y="356" class="tiny">載入 maps</text>
+<path d="M1097 284 V380 H864" class="dasharrow"/><text x="1010" y="343" class="tiny">邊界更新</text>
 
-  <rect x="70" y="252" width="168" height="44" class="box-gray"/>
-  <text x="154" y="270" text-anchor="middle" class="text">Teacher model</text>
-  <text x="154" y="289" text-anchor="middle" class="small">Contract5 continuous IF</text>
+<rect x="334" y="444" width="884" height="124" class="boundary"/>
+<text x="356" y="476" text-anchor="start" class="title">核心 / eBPF 快速路徑</text>
+<rect x="356" y="506" width="104" height="42" class="box2"/><text x="408" y="526" text-anchor="middle" class="label">封包</text><text x="408" y="543" text-anchor="middle" class="small">入口</text>
+<rect x="520" y="494" width="380" height="66" class="box2"/><text x="710" y="516" text-anchor="middle" class="label">XDP 快速路徑</text><text x="710" y="537" text-anchor="middle" class="small">解析、黑名單、SYN 路徑、狀態更新</text><text x="710" y="555" text-anchor="middle" class="small">Contract5 重建、5-bit index、查表評分</text>
+<rect x="950" y="480" width="86" height="38" class="ok"/><text x="993" y="504" text-anchor="middle" class="label">PASS</text>
+<rect x="950" y="536" width="86" height="38" class="drop"/><text x="993" y="560" text-anchor="middle" class="label">DROP</text>
+<rect x="1070" y="494" width="126" height="66" class="dash"/><text x="1133" y="516" text-anchor="middle" class="label">TC 分類器</text><text x="1133" y="537" text-anchor="middle" class="small">擴充掛載點</text><text x="1133" y="555" text-anchor="middle" class="small">未來策略</text>
+<line x1="460" y1="527" x2="510" y2="527" class="arrow"/>
+<path d="M900 520 H940" class="arrow"/>
+<path d="M900 548 H940" class="arrow"/>
+<path d="M900 527 C945 620 1050 620 1133 570" class="dasharrow"/>
+<line x1="680" y1="418" x2="680" y2="486" class="dasharrow"/><text x="694" y="456" class="tiny">查詢參數</text>
+<path d="M884 506 V284" class="event"/><text x="894" y="458" class="tiny">取樣事件</text>
 
-  <rect x="70" y="334" width="168" height="44" class="box-gray"/>
-  <text x="154" y="352" text-anchor="middle" class="text">Distillation</text>
-  <text x="154" y="371" text-anchor="middle" class="small">N=2 quantile buckets</text>
-
-  <rect x="70" y="416" width="168" height="44" class="box-gray"/>
-  <text x="154" y="442" text-anchor="middle" class="mono">distilled_rules.json</text>
-
-  <path class="muted" d="M154 214 V240"/>
-  <path class="muted" d="M154 296 V322"/>
-  <path class="muted" d="M154 378 V404"/>
-
-  <!-- Runtime host boundary. -->
-  <rect x="314" y="76" width="924" height="522" class="outer"/>
-  <text x="334" y="108" class="label">Runtime host</text>
-
-  <rect x="334" y="132" width="884" height="188" class="partition"/>
-  <text x="356" y="164" class="label">Rust userspace control plane</text>
-  <text x="356" y="188" class="small">loads parameters, records events, and guards adaptive boundary updates</text>
-
-  <rect x="356" y="224" width="150" height="48" class="box"/>
-  <text x="431" y="244" text-anchor="middle" class="title">Loader</text>
-  <text x="431" y="263" text-anchor="middle" class="mono">model.json</text>
-
-  <rect x="800" y="224" width="168" height="48" class="box"/>
-  <text x="884" y="244" text-anchor="middle" class="title">Stats logger</text>
-  <text x="884" y="263" text-anchor="middle" class="small">sampled score events</text>
-
-  <rect x="1010" y="212" width="174" height="72" class="box"/>
-  <text x="1097" y="236" text-anchor="middle" class="title">Boundary updater</text>
-  <text x="1097" y="256" text-anchor="middle" class="small">dual sketch gate</text>
-  <text x="1097" y="276" text-anchor="middle" class="small">Normal / Uncertain / Freeze</text>
-
-
-  <!-- BPF maps as the contract between userspace and eBPF programs. -->
-  <rect x="500" y="346" width="360" height="70" class="box-gray"/>
-  <text x="680" y="371" text-anchor="middle" class="title">BPF maps</text>
-  <text x="680" y="392" text-anchor="middle" class="small">QUANTILE_BOUNDS, SCORE_TABLE, metadata, block list</text>
-
-  <rect x="334" y="444" width="884" height="122" class="partition"/>
-  <text x="356" y="476" class="label">Kernel / eBPF fast path</text>
-
-  <rect x="356" y="506" width="104" height="42" class="box"/>
-  <text x="408" y="523" text-anchor="middle" class="title">Packet</text>
-  <text x="408" y="541" text-anchor="middle" class="small">ingress</text>
-
-  <rect x="520" y="494" width="190" height="66" class="box"/>
-  <text x="615" y="517" text-anchor="middle" class="title">XDP</text>
-  <text x="615" y="538" text-anchor="middle" class="small">parse, block list, SYN path</text>
-  <text x="615" y="556" text-anchor="middle" class="small">session update</text>
-
-  <rect x="776" y="494" width="216" height="66" class="box"/>
-  <text x="884" y="517" text-anchor="middle" class="title">TC scorer</text>
-  <text x="884" y="538" text-anchor="middle" class="small">Contract5 reconstruction</text>
-  <text x="884" y="556" text-anchor="middle" class="small">5-bit index, score lookup</text>
-
-  <rect x="1060" y="482" width="116" height="36" class="box"/>
-  <text x="1118" y="505" text-anchor="middle" class="title">PASS</text>
-
-  <rect x="1060" y="536" width="116" height="36" class="box"/>
-  <text x="1118" y="559" text-anchor="middle" class="title">LIMIT / DROP</text>
-
-  <!-- Runtime data path. -->
-  <path class="flow" d="M460 527 H508"/>
-  <path class="flow" d="M710 527 H764"/>
-  <path class="flow" d="M992 509 H1048"/>
-  <path class="flow" d="M992 548 H1048"/>
-
-  <!-- Contract/control flow, kept orthogonal to the packet path. -->
-  <path class="control" d="M238 438 H298 V248 H344"/>
-  <text x="250" y="236" class="small">exported rules</text>
-
-  <path class="control" d="M431 272 V381 H488"/>
-  <text x="444" y="326" class="small">load maps</text>
-
-  <path class="control" d="M1097 284 V381 H872"/>
-  <text x="1010" y="342" class="small">boundary update</text>
-
-  <path class="control" d="M680 416 V482"/>
-  <text x="692" y="456" class="small">lookup parameters</text>
-
-  <path class="event" d="M884 494 V284"/>
-  <text x="894" y="390" class="small">sampled events</text>
-
-
-  <!-- Scope note and legend. -->
-  <rect x="42" y="630" width="660" height="48" class="box-dashed"/>
-  <text x="62" y="650" class="title">Scope note</text>
-  <text x="62" y="669" class="small">Runtime inference is the eBPF 5-bit SCORE_TABLE. Full IF is offline-only; Layer 2 IF is not implemented.</text>
-
-  <rect x="760" y="630" width="478" height="48" class="box"/>
-  <line x1="786" y1="654" x2="828" y2="654" class="legend-line" marker-end="url(#arrow)"/>
-  <text x="840" y="659" class="small">packet path</text>
-  <line x1="944" y1="654" x2="986" y2="654" class="legend-dash" marker-end="url(#arrow)"/>
-  <text x="998" y="659" class="small">control / map update</text>
-  <line x1="1160" y1="654" x2="1202" y2="654" class="legend-dot" marker-end="url(#arrow-gray)"/>
-  <text x="1214" y="659" class="small">event</text>
+<rect x="42" y="630" width="660" height="48" class="note"/>
+<text x="62" y="651" text-anchor="start" class="label">範圍說明</text>
+<text x="62" y="670" text-anchor="start" class="small">執行期推論為 eBPF 5-bit SCORE_TABLE；完整 IF 僅離線；TC 非目前評分器。</text>
+<rect x="760" y="630" width="478" height="48" class="box2"/>
+<line x1="786" y1="654" x2="828" y2="654" class="arrow"/><text x="840" y="658" text-anchor="start" class="small">封包路徑</text>
+<line x1="970" y1="654" x2="1012" y2="654" class="dasharrow"/><text x="1024" y="658" text-anchor="start" class="small">控制 / map 更新</text>
+<line x1="1158" y1="654" x2="1200" y2="654" class="event"/><text x="1210" y="658" text-anchor="start" class="small">事件</text>
 </svg>
