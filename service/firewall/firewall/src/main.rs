@@ -2,11 +2,11 @@ use crate::lib::boundary_updater::BoundaryUpdater;
 use crate::lib::config::Config;
 use crate::lib::controller::FirewallController;
 use crate::lib::logger::Logger;
-use crate::lib::model_loader::load_model;
+use crate::lib::model_loader::{load_model, write_boundary_version};
 use aya::include_bytes_aligned;
-use aya::maps::{Array, PerCpuArray, PerCpuHashMap, RingBuf};
+use aya::maps::{Array, MapData, PerCpuArray, PerCpuHashMap, RingBuf};
 use clap::Parser;
-use firewall_common::model::BoundaryMeta;
+use firewall_common::model::{BoundaryMeta, QuantileBound, FEATURE_COUNT};
 use log::warn;
 use std::sync::Arc;
 
@@ -129,7 +129,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let mut quantile_bounds_table = Array::try_from(quantile_bounds_map)?;
     let mut model_config_table = Array::try_from(model_config_map)?;
     let stats_ring_buf = RingBuf::try_from(stats_ring_map)?;
-    let boundary_meta_table: Array<_, BoundaryMeta> = Array::try_from(boundary_meta_map)?;
+    let mut boundary_meta_table: Array<_, BoundaryMeta> = Array::try_from(boundary_meta_map)?;
 
     if config.model.enabled {
         load_model(
@@ -139,6 +139,18 @@ async fn main() -> Result<(), anyhow::Error> {
             &config.model.model_file,
             &config.model.action,
         )?;
+    }
+
+    // Table 2 / 8.A-5: direct microbenchmark of the boundary map-update path
+    // (double-buffered QUANTILE_BOUNDS write + BOUNDARY_META version flip).
+    // The adaptive gate only publishes under benign-dominated traffic, which
+    // is hard to synthesize on a loopback testbed; this hook measures the pure
+    // syscall cost against the real kernel maps. Enable with
+    //   FIREWALL_BENCH_MAP_UPDATE=<iterations> firewall --iface lo
+    if let Ok(iters) = std::env::var("FIREWALL_BENCH_MAP_UPDATE") {
+        let n: usize = iters.parse().unwrap_or(1000);
+        bench_map_update(&mut quantile_bounds_table, &mut boundary_meta_table, n)?;
+        return Ok(());
     }
 
     let mut logger = Logger::new(event_ring_buf, session_table, drop_events, config.clone())?;
@@ -172,5 +184,46 @@ async fn main() -> Result<(), anyhow::Error> {
     }
 
     log::info!("Shutdown complete");
+    Ok(())
+}
+
+/// Microbenchmark the boundary map-update path: `n` back-to-back
+/// `write_boundary_version` calls (double-buffered bank write + version flip)
+/// against the live kernel maps, reporting min/p50/p99/max in microseconds.
+/// Mirrors the per-batch publish the adaptive updater performs at steady state.
+fn bench_map_update(
+    bounds_map: &mut Array<&mut MapData, QuantileBound>,
+    meta_map: &mut Array<&mut MapData, BoundaryMeta>,
+    n: usize,
+) -> anyhow::Result<()> {
+    let new_bounds = [QuantileBound {
+        value: 1,
+        numer: 1,
+        denom: 1,
+    }; FEATURE_COUNT as usize];
+
+    let mut samples: Vec<f64> = Vec::with_capacity(n);
+    // One untimed warm-up to fault in pages / prime the bank flip.
+    write_boundary_version(bounds_map, meta_map, &new_bounds, 0)?;
+    for _ in 0..n {
+        let t0 = std::time::Instant::now();
+        write_boundary_version(bounds_map, meta_map, &new_bounds, 0)?;
+        samples.push(t0.elapsed().as_secs_f64() * 1e6);
+    }
+
+    samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let pct = |p: f64| samples[((samples.len() as f64 * p) as usize).min(samples.len() - 1)];
+    let mean = samples.iter().sum::<f64>() / samples.len() as f64;
+    log::info!(
+        "map_update_latency_bench: n={} min={:.2} p50={:.2} mean={:.2} p99={:.2} max={:.2} (us); \
+         each call = {} QUANTILE_BOUNDS set + 1 BOUNDARY_META flip",
+        n,
+        samples[0],
+        pct(0.50),
+        mean,
+        pct(0.99),
+        samples[samples.len() - 1],
+        FEATURE_COUNT,
+    );
     Ok(())
 }

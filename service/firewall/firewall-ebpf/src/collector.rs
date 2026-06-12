@@ -10,6 +10,20 @@ static EVENTS_POOL: RingBuf = RingBuf::with_byte_size(EVENT_RING_BUF_SIZE, 0);
 #[map]
 static DROP_EVENTS: PerCpuArray<u64> = PerCpuArray::with_max_entries(1, 0);
 
+// Actual packet-drop decisions (XDP_DROP / TC_ACT_SHOT). DROP_EVENTS above
+// counts ring-buffer event loss, NOT packet drops — benchmarks must read this.
+#[map]
+static PKT_DROPS: PerCpuArray<u64> = PerCpuArray::with_max_entries(1, 0);
+
+#[inline(always)]
+pub fn count_drop() {
+    unsafe {
+        if let Some(counter) = PKT_DROPS.get_ptr_mut(0) {
+            *counter += 1;
+        }
+    }
+}
+
 // Updated signature to take raw values instead of Ipv4Hdr struct
 // This avoids the need to reconstruct the struct in main.rs.
 // `#[inline(never)]` keeps the SessionKey/SessionEvent build in this function's

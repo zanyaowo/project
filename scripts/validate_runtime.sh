@@ -9,7 +9,7 @@
 #
 # Requires: root (sudo), bpftool, and for traffic generation `hping3`/`ping`.
 # Maps (names from firewall-ebpf): SCORE_TABLE, QUANTILE_BOUNDS, BOUNDARY_META,
-#   BLOCK_LIST, SESSIONS, DROP_EVENTS.
+#   BLOCK_LIST, SESSIONS, PKT_DROPS.
 #
 # Usage:
 #   sudo ./scripts/validate_runtime.sh load                    # P0: attach + maps loaded
@@ -162,8 +162,8 @@ cmd_packets() {
     echo
     dump_map SCORE_TABLE
     echo
-    echo "DROP_EVENTS (per-CPU drop counter):"
-    dump_map DROP_EVENTS
+    echo "PKT_DROPS (per-CPU packet-drop counter):"
+    dump_map PKT_DROPS
 }
 
 # ---------------------------------------------------------------------------
@@ -231,18 +231,18 @@ cmd_blocklist() {
     dst="${dst:-127.0.0.1}"
 
     local drops_before drops_after
-    drops_before="$(sudo bpftool map dump name DROP_EVENTS 2>/dev/null | grep -oE '0x[0-9a-fA-F]+' | head -1 || echo 0x0)"
+    drops_before="$(sudo bpftool map dump name PKT_DROPS 2>/dev/null | grep -oE '0x[0-9a-fA-F]+' | head -1 || echo 0x0)"
     echo "Sending probe packets spoofed-from ${ip} toward ${dst} (should be XDP_DROP) ..."
     timeout 3 hping3 -c 10 -a "${ip}" -S -p 80 "${dst}" >/dev/null 2>&1 || true
     sleep 1
-    drops_after="$(sudo bpftool map dump name DROP_EVENTS 2>/dev/null | grep -oE '0x[0-9a-fA-F]+' | head -1 || echo 0x0)"
-    echo "  DROP_EVENTS[0]: ${drops_before} -> ${drops_after}"
+    drops_after="$(sudo bpftool map dump name PKT_DROPS 2>/dev/null | grep -oE '0x[0-9a-fA-F]+' | head -1 || echo 0x0)"
+    echo "  PKT_DROPS[0]: ${drops_before} -> ${drops_after}"
 
     c_ylw "Cleanup: removing BLOCK_LIST entry ..."
     sudo bpftool map delete name BLOCK_LIST key hex ${key} 2>/dev/null \
         && c_grn "  entry removed" || c_ylw "  (entry already gone)"
 
-    c_ylw "Expected: packets from ${ip} get XDP_DROP; DROP_EVENTS increments."
+    c_ylw "Expected: packets from ${ip} get XDP_DROP; PKT_DROPS increments."
     echo "  Note: hping3 spoofed-source probes are best run from a second host;"
     echo "  on a single box, confirm DROP via 'bpftool prog tracelog' or metrics."
 }

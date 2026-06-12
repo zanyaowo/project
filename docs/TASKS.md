@@ -174,15 +174,18 @@
 
 ### 8.A 系統效能量測（填 E4 / Table 2；目前整表空白＝從未量測）
 
+> ⚠️ **計數器命名陷阱（2026-06-11 踩坑）**：`DROP_EVENTS` 計的是 RingBuf 滿載丟「事件」的次數，**不是封包 DROP 數**；XDP_DROP／TC_ACT_SHOT 路徑原本沒有任何計數器，導致 bench 量測 DROP Δ 恆為 0、mitigation latency 量不到。已新增 `PKT_DROPS` map（`collector.rs::count_drop()`，四個 drop 路徑全計），bench 腳本與 `validate_runtime.sh` 已改讀 `PKT_DROPS`。
+
 | 狀態 | 嚴重 | 任務                                | 腳本 / 指令 | 驗收標準（DoD） | 依賴 |
 |------|------|-----------------------------------|------------|----------------|------|
-| `[-]` | 🔴 | 建立 benchmark 測試平台（受測機 + 流量產生器）    | **腳本就緒** `scripts/bench/setup_testbed.sh`；`make bench-setup IFACE=<iface> MODE=loopback\|veth\|dual` | 文件化拓樸（loopback / veth pair / 雙機）；`hping3` 或 `pktgen` 可發 ≥1 Mpps；可重現。**待裝 bpftool/hping3 + on-hardware 執行** | on-hardware（root + NIC） |
+| `[ ]` | 🟡 | **【2026-06-12 無法重現，降級觀察】firewall 間歇性自行重啟／退出** — 2026-06-11 量測時觀察到：`make run-firewall IFACE=lo` 後 firewall 進程 pid 不斷變動（188276→26726→27996→…），map id 隨之遞增（316→354→…）；每隔數秒就有一個「死掉空窗」，導致 bench 腳本的 `require_maps_loaded` 間歇性報 `SCORE_TABLE not loaded`，且 throughput 量測曾出現 `PKT_DROPS Δ<0`（計數器歸零＝量測中途重啟）。**繞過方式**：背景啟動 + 趁穩定窗口量測，已取得有效數據，但根因未查。**2026-06-12 更新**：本日重跑整套 bench，firewall 全程穩定（同 PID/prog id 跑完 ≥16 min 含 flood），未再觀察到重啟；但仍出現一次 `PKT_DROPS Δ<0`，實為 `drop_events_total` 讀值瞬間 bpftool 回傳空（d1=0），map 值實際未歸零——**Δ<0 不必然＝重啟**，throughput.sh 應區分「讀取失敗（回傳 0/空）」與「計數器真歸零」，前者可重試一次再棄樣。**2026-06-12 復測（獨立確認）**：pid 34850 連續存活 35+ min，90s 逐秒監測 pid 不變，遠超 DoD ≥60s；另確認 bench 腳本（lib.sh/throughput.sh）無任何自動重啟邏輯，6/11 的 pid 變動＝進程真的死掉後被外部重新拉起。時間點線索：binary 於 6/11 21:41 重建（含 PKT_DROPS/collector.rs 修改），重建後未再觀察到重啟——6/11 觀察可能發生在舊 binary。根因未定位，降級為觀察；若再出現依「重現」欄步驟 + `RUST_BACKTRACE=1` 抓退出點。 | 重現：`sudo env "PATH=$PATH" target/release/firewall --iface lo >/tmp/fw.log 2>&1 &`，每秒 `pgrep -f target/release/firewall` 觀察存活；死亡時看 `fw.log` 末尾。已知 fw.log 僅見 `WARN AYA_LOGS doesn't exist`（無害）+ 一行 metrics 即止 | 定位退出點：是 Rust panic（看 backtrace）、ring buffer consumer 錯誤、boundary_updater，還是收到 SIGHUP/SIGINT？`RUST_BACKTRACE=1` + `dmesg` 看有無 kernel/XDP splat | 找出重啟根因；firewall 能連續存活 ≥60s（含 flood 負載），bench 不再撞死亡空窗 | on-hardware（root） |
+| `[-]` | 🔴 | 建立 benchmark 測試平台（受測機 + 流量產生器）    | **腳本就緒** `scripts/bench/setup_testbed.sh`；`make bench-setup IFACE=<iface> MODE=loopback\|veth\|dual` | 文件化拓樸（loopback / veth pair / 雙機）；`hping3` 或 `pktgen` 可發 ≥1 Mpps；可重現。**2026-06-11 已實機跑通 loopback**（hping3 ~1.02 Mpps、bpftool/mpstat 就緒） | on-hardware（root + NIC） |
 | `[-]` | 🔴 | Packet throughput（pps）4 對照組       | **腳本就緒** `scripts/bench/throughput.sh`（no-mitigation/static-blocklist/userspace-IF/eBPF-bucket）；`make bench-throughput GROUP=<g>`。userspace-IF 已離線算出 ~168 flow/s | 產出 4 組 max sustained pps + drop 曲線；eBPF-bucket ≥ userspace-IF | 8.A-1 |
 | `[-]` | 🟡 | CPU usage（%）各對照組                  | **腳本就緒** throughput.sh 內含 `mpstat` 取樣 | 同負載下 eBPF enforcement CPU% 表 | 8.A-1 |
 | `[-]` | 🟡 | Map lookup latency（ns）            | **腳本就緒** `scripts/bench/map_latency.sh`（`bpftool prog profile` 或 `bpf_stats_enabled` run_time_ns/run_cnt）；`make bench-maplat` | SCORE_TABLE/QUANTILE_BOUNDS 單次查表 p50/p99（ns）。**userspace proxy 已測：33.6 µs/flow，比 IF 推論快 177×**；kernel ns 待 on-hardware | on-hardware |
-| `[ ]` | 🟡 | Map update latency（µs）            | `boundary_updater.rs` 寫 map 前後 `Instant::now()` 包夾，logger 輸出 | `write_boundary_version` p50/p99（µs）| — |
+| `[x]` | 🟡 | Map update latency（µs）            | **(2026-06-12 完成)** `FIREWALL_BENCH_MAP_UPDATE=<n>` env-gated 微基準（main.rs `bench_map_update`），對已載入 kernel 的 QUANTILE_BOUNDS/BOUNDARY_META 連續呼叫 `write_boundary_version`。**改用微基準而非自然觸發的原因**：自適應閘控僅在 benign 主導流量才發布更新，純 attack flood（單一高速重用流）由設計使 ref_batch 無法湊滿而凍結（AttackFreeze）；SYN flood 另走 syn_cookie 早退、到不了 scorer。微基準直接量 syscall 成本，不依賴流量分類，更乾淨。⚠️ **更正先前誤判**：SESSIONS 是 `LruPerCpuHashMap`（table.rs:12），滿表會 LRU 淘汰、insert 永遠成功，**不存在「灌爆後新流不評分」**；distinct-port flood 那輪其實是 model_file 相對路徑沒對到（從 project root 啟動）導致 model 未載入而不取樣，與 session 表無關。**已驗證（2026-06-12）**：絕對路徑 model + distinct-port UDP 中速流（~3000pps）下，臨時 debug log 顯示 StatsEvent 確實流入 updater（live_batch 增長 1000→7000），但 **ref_batch（benign-gated）全程=0**——合成 flood 被 model 正確判 attack，故 batch 永不 ready、不發布，純屬 benign 分類問題非 bug。完整證據鏈見 `docs/_crosscut/issues/adaptive_gate_benchmark_notes.md`。**結果**：p50 1.7–3.1µs、p99 2.6–3.2µs（3 runs×1000）| `write_boundary_version` p50/p99 = 2–3 / 3 µs | — |
 | `[-]` | 🟡 | Mitigation latency（µs，偵測→DROP e2e） | **腳本就緒** `scripts/bench/mitigation_latency.sh`（時間戳：攻擊封包進場 ↔ 首個 XDP_DROP）；`make bench-mitigation` | 端到端延遲分布；含 SYN-cookie 路徑 | 8.A-1 |
-| `[ ]` | 🟡 | Legitimate drop ratio（%）          | benign+attack 混流回放，比對 ground-truth | FPR-in-the-wild（誤丟正常封包比例）| 8.A-1 |
+| `[x]` | 🟡 | Legitimate drop ratio（%）          | **(2026-06-12 完成，離線回放)** `service/model/experiments/run38_legitimate_drop_ratio.py`：用部署 `model.json` 固定 threshold=7073（與 kernel `score>=threshold→DROP` 同條件），在 CIC-DDoS2019 benign+attack 混流（每類 4000 筆）比對 ground-truth。非線上封包量測，係部署評分路徑回放，但判定邏輯與核心端一致 | **已測：0.57%**（正常流誤丟 23/4000）；與 Table 1 重校準操作點 FPR=0.007 互為印證。false-drop share 隨攻擊稀少上升（攻擊10%→5.9%、80%→0.18%）| 8.A-1 |
 
 ### 8.B 偵測對照矩陣（填 E1/E2/E3/E5/E6 — Table 1 + Figure 2）
 
@@ -316,7 +319,7 @@
 | `[-]` | Map lookup latency（ns）| kernel ns 待 `bpftool`/on-hardware；**userspace proxy 已測：查表 33.6 µs/flow** |
 | `[ ]` | Map update latency（µs）| userspace 寫 BPF map 的成本 |
 | `[ ]` | Mitigation latency（µs）| 從偵測到開始 DROP/RATE_LIMIT 的端到端延遲（待 on-hardware） |
-| `[ ]` | Legitimate drop ratio（%）| 正常封包誤丟比例（in-scope FPR 已測：deployed 0.007） |
+| `[x]` | Legitimate drop ratio（%）| **已測：0.57%**（固定 threshold 離線回放，`run38`）；in-scope 重校準 FPR=0.007 互印證 |
 
 **已實測（偵測側 per-flow 延遲，userspace，`results_benchmark.py`）：**
 

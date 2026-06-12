@@ -62,8 +62,10 @@ XDP（特徵提取、黑名單）→ TC（分位桶推論、限流）→ Rust Us
 |---------|-----------|
 | 函式導覽、資料夾用途、抽樣方法選擇 | `docs/claude_ref/codebase_map.md` |
 | 執行命令、驗證 checklist、資料路徑 | `docs/claude_ref/dev_commands.md` |
-| 歷史失敗案例（9 則）| `docs/claude_ref/failure_records.md` |
+| 歷史失敗案例（10 則）| `docs/claude_ref/failure_records.md` |
 | 架構決策、eBPF verifier 限制 | `docs/_crosscut/kernel_defense_architecture.md` |
+| eBPF verifier × LLVM 踩坑 | `docs/_crosscut/issues/ebpf_verifier_pitfalls.md` |
+| 效能量測踩坑（map update latency、自適應閘控 benign 觸發） | `docs/_crosscut/issues/adaptive_gate_benchmark_notes.md` |
 | 特徵選擇實驗（Run 01–16,18、附錄 A-1～A-9） | `docs/1_sensing/feature_selection_log.md` |
 | 分位桶策略/模型訓練（Run 17,19–29、A-10/11/12）；contract 不一致見 Run 28/29 | `docs/2_decision/quantile_bucket_strategy_log.md` |
 

@@ -28,6 +28,14 @@ require_maps_loaded
 section "mitigation latency: detect -> first DROP (IFACE=${IFACE}, ${REPS} reps)"
 tgt="$(target_ip)"
 
+# The flood's real source must be in BLOCK_LIST for a DROP to fire. On loopback
+# that source is the target IP (127.0.0.1); spoofed sources never materialize on
+# lo. Block the real source and flood normally; override BLOCK_IP for veth/dual.
+BLOCK_IP="${BLOCK_IP:-$(target_ip)}"
+c_ylw "Seeding BLOCK_LIST[${BLOCK_IP}] (flood's real source on this testbed)."
+seed_blocklist "${BLOCK_IP}"
+trap 'unseed_blocklist "${BLOCK_IP}"' EXIT
+
 # now_us: monotonic microseconds.
 now_us() { date +%s%6N; }
 
@@ -38,12 +46,15 @@ for ((i=1; i<=REPS; i++)); do
     t_start="$(now_us)"
     timeout 3 hping3 --flood -S -p 80 "${tgt}" >/dev/null 2>&1 &
     fpid=$!
-    # busy-poll DROP_EVENTS until it rises (cap ~3s)
+    # busy-poll DROP_EVENTS until it rises; cap by wall time (each
+    # drop_events_total call costs 10-30ms, so an iteration cap could run
+    # minutes per rep when no DROP ever fires).
     t_hit=""
-    for ((p=0; p<3000; p++)); do
+    while :; do
         if [[ "$(drop_events_total)" -gt "${d0}" ]]; then
             t_hit="$(now_us)"; break
         fi
+        (( $(now_us) - t_start > 3000000 )) && break
         sleep 0.001
     done
     kill "${fpid}" 2>/dev/null || true; wait "${fpid}" 2>/dev/null || true
@@ -68,4 +79,4 @@ sorted=($(printf '%s\n' "${samples[@]}" | sort -n))
 n="${#sorted[@]}"
 mn="${sorted[0]}"; mx="${sorted[n-1]}"; md="${sorted[n/2]}"
 echo "  min=${mn}µs  median=${md}µs  max=${mx}µs  (n=${n})"
-results_row "Mitigation latency" "ebpf-bucket detect->DROP" "${md}" "µs" "min=${mn}/max=${mx}, n=${n}"
+results_row "Mitigation latency" "BLOCK_LIST detect->DROP (userspace poll)" "${md}" "µs" "min=${mn}/max=${mx}, n=${n}; poll/spawn-bound, NOT kernel path"

@@ -1,0 +1,40 @@
+{
+  "scope": "CIC-DDoS2019 only",
+  "method": "deployed model.json fixed threshold (kernel DROP condition)",
+  "threshold": 7073,
+  "drop_buckets": [
+    9,
+    13,
+    15,
+    25
+  ],
+  "eval_rows": 48439,
+  "n_benign": 4000,
+  "n_attack": 44439,
+  "benign_dropped": 23,
+  "legitimate_drop_ratio": 0.00575,
+  "attack_catch_ratio": 0.8191228425482121,
+  "note": "legitimate_drop_ratio uses the fixed shipped threshold; differs from Table 1 FPR=0.007 which re-calibrates to the FPR<=1% op-point.",
+  "mixed_stream": [
+    {
+      "attack_fraction": 0.1,
+      "benign_drop_ratio": 0.00575,
+      "false_drop_share": 0.059423141326324085
+    },
+    {
+      "attack_fraction": 0.3,
+      "benign_drop_ratio": 0.00575,
+      "false_drop_share": 0.016115351305452365
+    },
+    {
+      "attack_fraction": 0.5,
+      "benign_drop_ratio": 0.00575,
+      "false_drop_share": 0.006970771376394204
+    },
+    {
+      "attack_fraction": 0.8,
+      "benign_drop_ratio": 0.00575,
+      "false_drop_share": 0.0017518516621652831
+    }
+  ]
+}

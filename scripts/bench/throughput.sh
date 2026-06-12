@@ -26,41 +26,56 @@ source "${HERE}/lib.sh"
 FLOOD="${FLOOD:-syn}"
 
 flood_bg() {
-    local tgt="$1"
+    local tgt="$1" spoof="${2:-}"
     local args=(--flood -p 80)
     [[ "${FLOOD}" == "udp" ]] && args=(--flood --udp -p 80) || args+=(-S)
+    [[ -n "${spoof}" ]] && args+=(-a "${spoof}")
     timeout "${DURATION}" hping3 "${args[@]}" "${tgt}" >/dev/null 2>&1 &
     echo $!
 }
 
 sample_cpu() {
-    # mean %%busy over DURATION via mpstat; fallback to /proc/stat delta.
+    # mean %%busy over DURATION via mpstat (LC_ALL=C: localized output has no
+    # "Average" line); fallback n/a.
+    local v
     if command -v mpstat >/dev/null 2>&1; then
-        mpstat 1 "${DURATION}" 2>/dev/null | awk '/Average/ && $NF ~ /[0-9.]+/ {print 100 - $NF; exit}'
-    else
-        echo "n/a"
+        v="$(LC_ALL=C mpstat 1 "${DURATION}" 2>/dev/null \
+                | awk '/Average/ && $NF ~ /[0-9.]+/ {print 100 - $NF; exit}')"
     fi
+    echo "${v:-n/a}"
 }
 
 measure_group() {
-    local group="$1"
-    section "throughput: ${group} (IFACE=${IFACE}, ${DURATION}s, FLOOD=${FLOOD})"
+    local group="$1" spoof="${2:-}"
+    section "throughput: ${group} (IFACE=${IFACE}, ${DURATION}s, FLOOD=${FLOOD}${spoof:+, spoof-src=${spoof}})"
     require_cmd hping3 || { c_red "hping3 required"; return 1; }
     local tgt; tgt="$(target_ip)"
 
     local p0 p1 d0 d1 pid cpu pps drops
     p0="$(iface_packets)"; d0="$(drop_events_total)"
-    pid="$(flood_bg "${tgt}")"
+    pid="$(flood_bg "${tgt}" "${spoof}")"
     cpu="$(sample_cpu)"            # blocks ~DURATION while flood runs
     wait "${pid}" 2>/dev/null || true
     p1="$(iface_packets)"; d1="$(drop_events_total)"
 
-    pps=$(( (p1 - p0) / DURATION ))
+    # XDP_DROP'd packets never accumulate in /sys rx/tx, so a pass-through-only
+    # delta undercounts the drop path (blocklist drops everything -> /sys Δ≈0).
+    # Total handled rate = passed packets + dropped packets.
     drops=$(( d1 - d0 ))
-    echo "  packets Δ=$(( p1 - p0 ))  ->  ${pps} pps"
-    echo "  DROP_EVENTS Δ=${drops}    CPU busy≈${cpu}%"
-    results_row "Throughput" "${group}" "${pps}" "pps" "DROP Δ=${drops}"
-    [[ "${cpu}" != "n/a" ]] && results_row "CPU usage" "${group}" "${cpu}" "%" "flood ${DURATION}s"
+    if (( drops < 0 )); then
+        # PKT_DROPS went backwards => the firewall restarted mid-measurement
+        # (per-CPU counter reset). The sample is corrupt; don't record it.
+        c_red "  PKT_DROPS Δ=${drops} < 0: firewall restarted during measurement; sample discarded."
+        c_red "  Re-run with a stable firewall (check it stays up for >${DURATION}s)."
+        return 1
+    fi
+    pps=$(( (p1 - p0 + drops) / DURATION ))
+    echo "  packets Δ=$(( p1 - p0 ))  PKT_DROPS Δ=${drops}  ->  ${pps} pps handled"
+    echo "  CPU busy≈${cpu}%"
+    results_row "Throughput" "${group}" "${pps}" "pps" "passed Δ=$(( p1 - p0 )), dropped Δ=${drops}"
+    if [[ "${cpu}" != "n/a" ]]; then
+        results_row "CPU usage" "${group}" "${cpu}" "%" "flood ${DURATION}s"
+    fi
 }
 
 measure_userspace_if() {
@@ -82,7 +97,17 @@ measure_userspace_if() {
 
 case "${1:-ebpf-bucket}" in
     no-mitigation)    require_root; measure_group "no-mitigation" ;;
-    static-blocklist) require_root; require_maps_loaded; measure_group "static-blocklist" ;;
+    static-blocklist)
+        # Exercise the IP-lookup-only DROP path: block the flood's real source
+        # (on loopback that is the target IP itself; override BLOCK_IP for veth/
+        # dual). Spoofed sources never materialize on lo, so we block the real
+        # one and flood normally. Clean up the entry on exit.
+        require_root; require_maps_loaded
+        BLOCK_IP="${BLOCK_IP:-$(target_ip)}"
+        seed_blocklist "${BLOCK_IP}"
+        trap 'unseed_blocklist "${BLOCK_IP}"' EXIT
+        measure_group "static-blocklist"
+        ;;
     ebpf-bucket)      require_root; require_maps_loaded; measure_group "ebpf-bucket" ;;
     userspace-IF)     measure_userspace_if ;;
     all)

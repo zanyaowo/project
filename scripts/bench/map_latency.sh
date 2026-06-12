@@ -48,28 +48,50 @@ if command -v hping3 >/dev/null 2>&1; then
 fi
 
 # bpftool prog profile prints cycles + run_cnt over the profiling window.
+# Keep stderr: when profile is unsupported (no fentry/perf) we want to see why.
 PROF="$(timeout "$((DURATION+2))" bpftool prog profile id "${PROG_ID}" \
-            duration "${DURATION}" cycles instructions 2>/dev/null || true)"
+            duration "${DURATION}" cycles instructions 2>&1 || true)"
 echo "${PROF}" | sed 's/^/    /'
 wait 2>/dev/null || true
 
-# Parse "<cycles> cycles" and "<runs> run_cnt" if present; else guide user.
-CYC="$(echo "${PROF}" | grep -iE 'cycles' | grep -oE '[0-9,]+' | head -1 | tr -d ',')"
-RUNS="$(bpftool prog show id "${PROG_ID}" 2>/dev/null | grep -oE 'run_cnt [0-9]+' | grep -oE '[0-9]+' || echo '')"
+# "run_time_ns <t> run_cnt <c>" from prog show (fields only exist while
+# kernel.bpf_stats_enabled=1); echoes "0 0" when absent.
+prog_stats() {
+    local out
+    out="$(bpftool prog show id "$1" 2>/dev/null \
+            | grep -oE 'run_time_ns [0-9]+ run_cnt [0-9]+' \
+            | awk '{print $2, $4}')"
+    echo "${out:-0 0}"
+}
+
+# Parse "<cycles> cycles" and "<runs> run_cnt" if present.
+CYC="$(echo "${PROF}" | grep -iE '[0-9,]+[[:space:]]+cycles' | grep -oE '[0-9,]+' | head -1 | tr -d ',' || true)"
+RUNS="$(echo "${PROF}" | grep -oE 'run_cnt[[:space:]]+[0-9,]+' | grep -oE '[0-9,]+' | tr -d ',' || true)"
 if [[ -n "${CYC}" && -n "${RUNS}" && "${RUNS}" -gt 0 ]]; then
     NS="$(awk -v c="${CYC}" -v r="${RUNS}" -v g="${GHZ}" 'BEGIN{printf "%.1f", (c/r)/g}')"
     echo "  per-invocation: ${CYC} cycles / ${RUNS} runs ÷ ${GHZ} GHz ≈ ${NS} ns"
     results_row "Map/prog lookup latency" "ebpf-bucket (XDP)" "${NS}" "ns" "bpftool prog profile, ${GHZ}GHz"
 else
-    c_ylw "  Could not auto-parse cycles/runs. Manual fallback:"
-    echo  "    1) note 'run_cnt' before & after a fixed traffic burst:"
-    echo  "         bpftool prog show id ${PROG_ID} | grep run_cnt"
-    echo  "    2) 'run_time_ns' field (if BPF stats on) gives total ns:"
-    echo  "         sysctl kernel.bpf_stats_enabled=1 ; then run_time_ns/run_cnt = ns/pkt"
-    results_row "Map/prog lookup latency" "ebpf-bucket (XDP)" "see-log" "ns" "manual: run_time_ns/run_cnt"
+    # Fallback: kernel.bpf_stats_enabled gives exact run_time_ns / run_cnt
+    # deltas over a flood window — no perf/fentry support needed.
+    c_ylw "  'bpftool prog profile' gave no parseable output; falling back to kernel.bpf_stats_enabled."
+    OLD_STATS="$(sysctl -n kernel.bpf_stats_enabled 2>/dev/null || echo 0)"
+    sysctl -qw kernel.bpf_stats_enabled=1
+    read -r T0 C0 <<< "$(prog_stats "${PROG_ID}")"
+    tgt="$(target_ip)"
+    if command -v hping3 >/dev/null 2>&1; then
+        timeout "${DURATION}" hping3 --flood -S -p 80 "${tgt}" >/dev/null 2>&1 || true
+    else
+        sleep "${DURATION}"
+    fi
+    read -r T1 C1 <<< "$(prog_stats "${PROG_ID}")"
+    sysctl -qw kernel.bpf_stats_enabled="${OLD_STATS}"
+    if (( C1 > C0 )); then
+        NS="$(awk -v t="$((T1 - T0))" -v c="$((C1 - C0))" 'BEGIN{printf "%.1f", t/c}')"
+        echo "  run_time_ns Δ=$((T1 - T0)) / run_cnt Δ=$((C1 - C0)) ≈ ${NS} ns per invocation"
+        results_row "Map/prog lookup latency" "ebpf-bucket (XDP)" "${NS}" "ns" "bpf_stats run_time_ns/run_cnt, ${DURATION}s flood"
+    else
+        c_red "  run_cnt did not increase — is the XDP prog attached to ${IFACE} and traffic flowing?"
+        exit 1
+    fi
 fi
-
-c_ylw "Tip: enable BPF runtime stats for a clean ns/pkt number:"
-echo  "  sudo sysctl kernel.bpf_stats_enabled=1"
-echo  "  # run traffic, then:"
-echo  "  bpftool prog show id ${PROG_ID}   # divide run_time_ns / run_cnt"

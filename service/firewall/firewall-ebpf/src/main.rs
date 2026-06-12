@@ -46,6 +46,7 @@ unsafe fn tc_egress_impl(ctx: &TcContext) -> i32 {
     }
 
     if blocker::is_blocked(pkt.dst_ip) {
+        collector::count_drop();
         return TC_ACT_SHOT as i32;
     }
 
@@ -73,6 +74,7 @@ fn try_xdp_firewall(ctx: XdpContext) -> Result<u32, ()> {
     }
 
     if blocker::is_blocked(pkt.src_ip) {
+        collector::count_drop();
         return Ok(xdp_action::XDP_DROP);
     }
 
@@ -108,6 +110,7 @@ fn try_xdp_firewall(ctx: XdpContext) -> Result<u32, ()> {
 
                 // Client's ACK seq must equal cookie + 1 (wrapping).
                 if tcp.ack_seq.wrapping_sub(1) != cookie {
+                    collector::count_drop();
                     return Ok(xdp_action::XDP_DROP);
                 }
             }
@@ -127,6 +130,7 @@ fn try_xdp_firewall(ctx: XdpContext) -> Result<u32, ()> {
             score = result.score;
 
             if result.action == xdp_action::XDP_DROP {
+                collector::count_drop();
                 return Ok(xdp_action::XDP_DROP);
             }
         }

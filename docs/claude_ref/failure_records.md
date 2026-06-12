@@ -62,3 +62,8 @@ Run 08 在 CIC IDS 2018 的 LOIC-HTTP AUC=0.28（低於隨機基線）。
 
 **2026-04-17 — BigFlow-NIDS-V2 跨資料集驗證：CIC 分位桶邊界在新資料集完全失效**
 用 CIC BENIGN 計算的 N=2 邊界在 BigFlow-NIDS-V2 上 AUC=0.3888（低於隨機基線，模型倒置）。根本原因：BF Benign 的 Shape_Ratio 中位數（1.00）遠高於 CIC BENIGN（0.32），導致 N=2 邊界對 BigFlow 無效。改用 BigFlow 自身 Benign 重算邊界後 N=4 達 AUC=0.9110。結論：分位桶邊界是環境相關參數（非通用常數），跨環境部署時 Rust Userspace 必須以目標環境 Benign 重算邊界並更新 BPF_MAP；同分布時 N=2 最優，跨資料集時 N=4 更穩健。
+
+---
+
+**2026-06-12 — map update latency 量測：兩條誤判 + 設計性攔阻**
+量 boundary map update latency 時，loopback 合成流量始終無法觸發 `write_boundary_version`。踩了兩條誤判：(1)「SESSIONS 表灌爆 → 新流插不進不評分」**錯**——`SESSIONS` 是 `LruPerCpuHashMap`（table.rs:12），滿表 LRU 淘汰、insert 永遠成功；(2) distinct-port flood 沒觸發的真因是 firewall 從 project root 啟動、config `model_file` 相對路徑沒對到 → model 未載入（`MODEL_CONFIG.enabled==0`）→ scorer 不取樣。真正的設計性攔阻：合成 flood 被 model 正確判 attack（score 全 ≥ threshold/2），`ref_batch`（benign 參考批）餓死停在 0 → `batch_ready`（需 ref≥batch_size）永不成立 → 不發布（AttackFreeze by starvation，防污染本意）。對策：(a) eBPF 行為驗證務必確認 model 真載入（dump `MODEL_CONFIG`：enabled/fcount/threshold），別只看 firewall 有沒有起來；(b) SYN flood 走 syn_cookie 早退、到不了 scorer，測 scorer 路徑要用 UDP/非-SYN；(c) 需 benign-classified 流量才會自然觸發 gate publish，loopback 合成不出來，改用 `FIREWALL_BENCH_MAP_UPDATE` 微基準直接量 syscall 成本（p50 2–3µs）。完整證據鏈見 `docs/_crosscut/issues/adaptive_gate_benchmark_notes.md`。

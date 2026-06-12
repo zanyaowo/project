@@ -288,12 +288,19 @@ impl<'a> BoundaryUpdater<'a> {
             }
 
             let ttl_ns = ac.boundary_ttl_secs.saturating_mul(1_000_000_000);
+            let t0 = std::time::Instant::now();
             write_boundary_version(
                 &mut self.bounds_map,
                 &mut self.meta_map,
                 &new_bounds[..FEATURE_COUNT as usize],
                 ttl_ns,
             )?;
+            // Table 2 / 8.A-5: syscall cost of the double-buffered bank write
+            // + version flip, sampled per published batch.
+            log::info!(
+                "boundary_updater: map_update_latency_us={:.1}",
+                t0.elapsed().as_secs_f64() * 1e6
+            );
 
             // Path B: threshold tracks BENIGN-only p85 (drift-gated).
             let p85 = score_quantile(&self.ref_score, 0.85);

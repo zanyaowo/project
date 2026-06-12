@@ -80,15 +80,38 @@ iface_packets() {
     echo $(( rx + tx ))
 }
 
-# First per-CPU DROP_EVENTS counter (hex -> dec), summed across CPUs.
+# Sum of the per-CPU PKT_DROPS counter. PKT_DROPS counts actual XDP_DROP /
+# TC_ACT_SHOT decisions; DROP_EVENTS counts ring-buffer event loss and must NOT
+# be used as a packet-drop signal.
+#
+# bpftool prints each CPU's u64 as 8 space-separated little-endian hex bytes:
+#   value (CPU 00): 87 5c 0c 00 00 00 00 00
+# so we reassemble byte0 + byte1<<8 + ... per line and sum across CPUs.
 drop_events_total() {
-    if ! map_loaded DROP_EVENTS; then echo 0; return; fi
-    local sum=0 v
-    while read -r v; do
-        sum=$(( sum + 0x${v#0x} ))
-    done < <(sudo bpftool map dump name DROP_EVENTS 2>/dev/null \
-                | grep -oE '0x[0-9a-fA-F]+' || true)
-    echo "${sum}"
+    if ! map_loaded PKT_DROPS; then echo 0; return; fi
+    sudo bpftool map dump name PKT_DROPS 2>/dev/null | awk '
+        /value.*CPU/ {
+            v = 0
+            for (i = 0; i < 8; i++) v += strtonum("0x" $(NF-7+i)) * (2 ^ (8 * i))
+            sum += v
+        }
+        END { printf "%d\n", sum }'
+}
+
+# IPv4-mapped 16-byte BLOCK_LIST key (same layout as validate_runtime.sh).
+blocklist_key() {
+    local o1 o2 o3 o4
+    IFS='.' read -r o1 o2 o3 o4 <<< "$1"
+    printf '00 00 00 00 00 00 00 00 00 00 ff ff %02x %02x %02x %02x' \
+        "${o1}" "${o2}" "${o3}" "${o4}"
+}
+
+seed_blocklist() {
+    bpftool map update name BLOCK_LIST key hex $(blocklist_key "$1") value hex 01 00 00 00
+}
+
+unseed_blocklist() {
+    bpftool map delete name BLOCK_LIST key hex $(blocklist_key "$1") 2>/dev/null || true
 }
 
 # Pick a traffic target IP on IFACE, fall back to loopback.
